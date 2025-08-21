@@ -1,0 +1,1414 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMO™ - Norwegian AI Assistant Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #0084ff;
+            --primary-dark: #0066cc;
+            --secondary: #00c896;
+            --danger: #ff3b30;
+            --warning: #ffcc00;
+            --dark: #000000;
+            --dark-lighter: #0a0a0a;
+            --glass: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --text: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.7);
+            --text-muted: rgba(255, 255, 255, 0.5);
+            --neural-glow: #00ffcc;
+            --quantum-purple: #5856d6;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--dark);
+            color: var(--text);
+            overflow: hidden;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* Animated Background Grid */
+        .quantum-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 132, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 132, 255, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            animation: gridMove 20s linear infinite;
+            z-index: 1;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+
+        /* Neural Particles */
+        .neural-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .particle {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: var(--neural-glow);
+            border-radius: 50%;
+            opacity: 0;
+            animation: particleFloat 15s infinite;
+        }
+
+        @keyframes particleFloat {
+            0%, 100% { opacity: 0; transform: translate(0, 0); }
+            10% { opacity: 0.5; }
+            90% { opacity: 0.5; }
+            50% { transform: translate(var(--x), var(--y)); }
+        }
+
+        /* Main App Container */
+        .app-container {
+            position: relative;
+            z-index: 10;
+            height: 100vh;
+            display: grid;
+            grid-template-rows: 70px 1fr;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(20px);
+        }
+
+        /* Premium Header */
+        .header {
+            background: linear-gradient(90deg, rgba(0, 0, 0, 0.95), rgba(10, 10, 10, 0.95));
+            border-bottom: 1px solid var(--glass-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+            position: relative;
+        }
+
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--primary), var(--secondary), var(--primary), transparent);
+            animation: scanline 4s linear infinite;
+        }
+
+        @keyframes scanline {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        /* Logo Section */
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .logo {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--primary), var(--quantum-purple));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            box-shadow: 0 10px 30px rgba(0, 132, 255, 0.3);
+            animation: logoFloat 3s ease-in-out infinite;
+            position: relative;
+        }
+
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-5px) rotate(5deg); }
+        }
+
+        .logo::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            background: linear-gradient(135deg, var(--primary), var(--quantum-purple));
+            border-radius: 12px;
+            opacity: 0.5;
+            filter: blur(10px);
+            animation: logoPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes logoPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        .brand-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .brand-name {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, var(--text), var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-tagline {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        /* Zoom Controls */
+        .zoom-controls {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 25px;
+            padding: 5px;
+            margin-right: 15px;
+        }
+
+        .zoom-btn {
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            border: 1px solid var(--glass-border);
+            background: transparent;
+            color: var(--text);
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .zoom-btn:hover {
+            background: rgba(0, 132, 255, 0.2);
+            border-color: var(--primary);
+            transform: scale(1.1);
+        }
+
+        .zoom-level {
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+            min-width: 45px;
+            text-align: center;
+        }
+
+        /* AI Status Display */
+        .ai-status-container {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .ai-chip {
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 8px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .ai-chip:hover {
+            background: rgba(0, 132, 255, 0.1);
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .ai-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--secondary);
+            border-radius: 50%;
+            animation: dotPulse 2s infinite;
+        }
+
+        @keyframes dotPulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 5px var(--secondary); }
+            50% { opacity: 0.5; box-shadow: 0 0 15px var(--secondary); }
+        }
+
+        .ai-chip span {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        /* Main Layout */
+        .main-layout {
+            display: grid;
+            grid-template-columns: 250px 1fr 320px;
+            height: calc(100vh - 70px);
+            gap: 1px;
+            background: var(--glass-border);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 20px 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .nav-item {
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            padding: 12px 16px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 14px;
+            font-weight: 500;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .nav-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 3px;
+            height: 100%;
+            background: var(--primary);
+            transform: translateX(-100%);
+            transition: transform 0.3s;
+        }
+
+        .nav-item:hover {
+            background: var(--glass);
+            border-color: var(--glass-border);
+            color: var(--text);
+            transform: translateX(5px);
+        }
+
+        .nav-item.active {
+            background: linear-gradient(90deg, rgba(0, 132, 255, 0.15), transparent);
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .nav-item.active::before {
+            transform: translateX(0);
+        }
+
+        .nav-icon {
+            font-size: 20px;
+            width: 24px;
+            text-align: center;
+        }
+
+        /* Chat Area */
+        .chat-area {
+            background: rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-header {
+            background: var(--glass);
+            border-bottom: 1px solid var(--glass-border);
+            padding: 20px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-title {
+            font-size: 16px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            background: var(--secondary);
+            border-radius: 50%;
+            animation: statusPulse 2s infinite;
+        }
+
+        @keyframes statusPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 200, 150, 0.7); }
+            50% { box-shadow: 0 0 0 10px rgba(0, 200, 150, 0); }
+        }
+
+        .chat-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-action-btn {
+            width: 35px;
+            height: 35px;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .chat-action-btn:hover {
+            background: rgba(0, 132, 255, 0.1);
+            border-color: var(--primary);
+            color: var(--primary);
+            transform: scale(1.05);
+        }
+
+        /* Messages Container */
+        .messages-container {
+            flex: 1;
+            padding: 25px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .messages-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .messages-container::-webkit-scrollbar-track {
+            background: var(--glass);
+            border-radius: 3px;
+        }
+
+        .messages-container::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 3px;
+        }
+
+        .message {
+            display: flex;
+            gap: 15px;
+            animation: messageSlide 0.3s ease;
+        }
+
+        @keyframes messageSlide {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .message.ai .message-avatar {
+            background: linear-gradient(135deg, var(--primary), var(--quantum-purple));
+            box-shadow: 0 5px 15px rgba(0, 132, 255, 0.3);
+        }
+
+        .message.user .message-avatar {
+            background: linear-gradient(135deg, var(--secondary), #00a884);
+            box-shadow: 0 5px 15px rgba(0, 200, 150, 0.3);
+        }
+
+        .message-content {
+            max-width: 70%;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 15px;
+            padding: 15px 20px;
+            position: relative;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, rgba(0, 200, 150, 0.1), rgba(0, 200, 150, 0.05));
+            border-color: rgba(0, 200, 150, 0.3);
+        }
+
+        .message-text {
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .message-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 8px;
+        }
+
+        /* Input Area */
+        .input-area {
+            background: var(--glass);
+            border-top: 1px solid var(--glass-border);
+            padding: 20px;
+        }
+
+        .quick-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .quick-btn {
+            padding: 6px 14px;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .quick-btn:hover {
+            background: rgba(0, 132, 255, 0.1);
+            border-color: var(--primary);
+            color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .input-container {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s;
+        }
+
+        .input-wrapper:focus-within {
+            border-color: var(--primary);
+            box-shadow: 0 0 20px rgba(0, 132, 255, 0.1);
+        }
+
+        #messageInput {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+        }
+
+        #messageInput::placeholder {
+            color: var(--text-muted);
+        }
+
+        .input-btn {
+            width: 36px;
+            height: 36px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            font-size: 18px;
+        }
+
+        .input-btn:hover {
+            color: var(--primary);
+            transform: scale(1.1);
+        }
+
+        .send-btn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, var(--primary), var(--quantum-purple));
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 5px 15px rgba(0, 132, 255, 0.3);
+        }
+
+        .send-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 132, 255, 0.4);
+        }
+
+        .send-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Data Panel */
+        .data-panel {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        .metric-card {
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 16px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--primary), transparent);
+            animation: metricScan 3s linear infinite;
+        }
+
+        @keyframes metricScan {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        .metric-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .metric-badge {
+            background: var(--secondary);
+            color: var(--dark);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .metric-value {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--text), var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .metric-change {
+            font-size: 12px;
+            color: var(--secondary);
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Graph */
+        .graph-container {
+            height: 120px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .graph-line {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 200%;
+            height: 100%;
+            background: linear-gradient(180deg, rgba(0, 132, 255, 0.3) 0%, transparent 100%);
+            clip-path: polygon(
+                0% 70%, 5% 65%, 10% 60%, 15% 62%, 20% 55%, 
+                25% 50%, 30% 45%, 35% 48%, 40% 42%, 45% 38%,
+                50% 35%, 55% 32%, 60% 30%, 65% 28%, 70% 25%,
+                75% 22%, 80% 20%, 85% 18%, 90% 15%, 95% 12%,
+                100% 10%, 100% 100%, 0% 100%
+            );
+            animation: graphMove 10s linear infinite;
+        }
+
+        @keyframes graphMove {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+
+        /* Form Preview */
+        .form-preview {
+            background: linear-gradient(135deg, rgba(0, 200, 150, 0.1), rgba(0, 132, 255, 0.1));
+            border: 1px solid rgba(0, 200, 150, 0.3);
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 15px;
+        }
+
+        .form-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .form-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .form-status {
+            background: var(--secondary);
+            color: var(--dark);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .form-field {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .field-label {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .field-value {
+            font-size: 13px;
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        .form-btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 10px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .form-btn.primary {
+            background: linear-gradient(135deg, var(--secondary), #00a884);
+            color: white;
+        }
+
+        .form-btn.secondary {
+            background: transparent;
+            border: 1px solid var(--glass-border);
+            color: var(--text-secondary);
+        }
+
+        .form-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Loading */
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 10px;
+        }
+
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+            animation: typingBounce 1.4s infinite;
+        }
+
+        .typing-dot:nth-child(2) { animation-delay: 0.1s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.2s; }
+
+        @keyframes typingBounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-10px); }
+        }
+
+        /* Voice Recording */
+        .voice-recording {
+            background: linear-gradient(135deg, var(--danger), #ff1744);
+            animation: recordPulse 1.5s infinite;
+        }
+
+        @keyframes recordPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.7); }
+            50% { box-shadow: 0 0 0 10px rgba(255, 59, 48, 0); }
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .main-layout {
+                grid-template-columns: 200px 1fr;
+            }
+            .data-panel {
+                display: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+            .sidebar {
+                display: none;
+            }
+            .ai-status-container {
+                display: none;
+            }
+            .header {
+                padding: 0 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="quantum-grid"></div>
+    <div class="neural-bg" id="neuralBg"></div>
+
+    <div class="app-container">
+        <!-- Premium Header -->
+        <header class="header">
+            <div class="logo-section">
+                <div class="logo">AI</div>
+                <div class="brand-info">
+                    <div class="brand-name">EMO™</div>
+                    <div class="brand-tagline">Enterprise AI Platform</div>
+                </div>
+            </div>
+
+            <div class="ai-status-container">
+                <div class="ai-chip">
+                    <div class="ai-dot"></div>
+                    <span>GPT-4 Active</span>
+                </div>
+                <div class="ai-chip">
+                    <div class="ai-dot"></div>
+                    <span>Claude-3 Active</span>
+                </div>
+                <div class="ai-chip">
+                    <div class="ai-dot"></div>
+                    <span>Gemini Pro Active</span>
+                </div>
+                <div class="ai-chip">
+                    <div class="ai-dot" style="background: var(--warning);"></div>
+                    <span>1,247 Users Online</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <div class="main-layout">
+            <!-- Sidebar Navigation -->
+            <nav class="sidebar">
+                <button class="nav-item active" onclick="setView('chat')">
+                    <span class="nav-icon">💬</span>
+                    <span>AI Assistant</span>
+                </button>
+                <button class="nav-item" onclick="setView('nav')">
+                    <span class="nav-icon">🏛️</span>
+                    <span>NAV Services</span>
+                </button>
+                <button class="nav-item" onclick="setView('health')">
+                    <span class="nav-icon">🏥</span>
+                    <span>Helsenorge</span>
+                </button>
+                <button class="nav-item" onclick="setView('tax')">
+                    <span class="nav-icon">📊</span>
+                    <span>Skattetaten</span>
+                </button>
+                <button class="nav-item" onclick="setView('pension')">
+                    <span class="nav-icon">💰</span>
+                    <span>Pensjon</span>
+                </button>
+                <button class="nav-item" onclick="setView('documents')">
+                    <span class="nav-icon">📄</span>
+                    <span>Dokumenter</span>
+                </button>
+                <button class="nav-item" onclick="setView('calendar')">
+                    <span class="nav-icon">📅</span>
+                    <span>Kalendar</span>
+                </button>
+                <button class="nav-item" onclick="setView('settings')">
+                    <span class="nav-icon">⚙️</span>
+                    <span>Innstillinger</span>
+                </button>
+            </nav>
+
+            <!-- Chat Area -->
+            <main class="chat-area">
+                <div class="chat-header">
+                    <div class="chat-title">
+                        <div class="status-indicator"></div>
+                        AI Assistant - Live
+                    </div>
+                    <div class="chat-actions">
+                        <button class="chat-action-btn" onclick="clearChat()">🗑️</button>
+                        <button class="chat-action-btn" onclick="exportChat()">💾</button>
+                        <button class="chat-action-btn" onclick="toggleFullscreen()">⛶</button>
+                    </div>
+                </div>
+
+                <div class="messages-container" id="messagesContainer">
+                    <div class="message ai">
+                        <div class="message-avatar">🤖</div>
+                        <div class="message-content">
+                            <div class="message-text">
+                                Velkommen til EMO AI Platform. Jeg er din personlige assistent og kan hjelpe deg med alle offentlige tjenester. Hva kan jeg hjelpe deg med i dag?
+                            </div>
+                            <div class="message-time">14:23:45</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="input-area">
+                    <div class="quick-actions">
+                        <button class="quick-btn" onclick="quickAction('nav')">NAV Søknad</button>
+                        <button class="quick-btn" onclick="quickAction('pension')">Beregn Pensjon</button>
+                        <button class="quick-btn" onclick="quickAction('doctor')">Bestill Legetime</button>
+                        <button class="quick-btn" onclick="quickAction('tax')">Skattemelding</button>
+                        <button class="quick-btn" onclick="quickAction('medicine')">Mine Medisiner</button>
+                    </div>
+                    <div class="input-container">
+                        <div class="input-wrapper">
+                            <input type="text" id="messageInput" placeholder="Skriv din melding eller bruk mikrofonen..." 
+                                   onkeypress="if(event.key==='Enter') sendMessage()">
+                            <button class="input-btn" onclick="attachFile()">📎</button>
+                            <button class="input-btn" id="voiceBtn" onclick="toggleVoice()">🎤</button>
+                        </div>
+                        <button class="send-btn" onclick="sendMessage()">Send →</button>
+                    </div>
+                </div>
+            </main>
+
+            <!-- Data Panel -->
+            <aside class="data-panel">
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-label">Behandlede Saker</span>
+                        <span class="metric-badge">LIVE</span>
+                    </div>
+                    <div class="metric-value" id="casesCount">1,247</div>
+                    <div class="metric-change">↑ 127 siste time</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-label">Løsningsrate</span>
+                    </div>
+                    <div class="metric-value">98.7%</div>
+                    <div class="metric-change">↑ 2.3% denne uken</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-label">Responstid</span>
+                    </div>
+                    <div class="metric-value" id="responseTime">0.3s</div>
+                    <div class="metric-change">↓ 200ms forbedring</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-label">AI Performance</span>
+                    </div>
+                    <div class="graph-container">
+                        <div class="graph-line"></div>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-label">Siste Aktiviteter</span>
+                    </div>
+                    <div id="activityLog">
+                        <div class="form-field">
+                            <span class="field-label">14:23</span>
+                            <span class="field-value">NAV Søknad</span>
+                        </div>
+                        <div class="form-field">
+                            <span class="field-label">14:21</span>
+                            <span class="field-value">Pensjon Beregnet</span>
+                        </div>
+                        <div class="form-field">
+                            <span class="field-label">14:19</span>
+                            <span class="field-value">Legetime Bestilt</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Neural Background
+        function initNeuralBg() {
+            const bg = document.getElementById('neuralBg');
+            for (let i = 0; i < 30; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.top = Math.random() * 100 + '%';
+                particle.style.setProperty('--x', (Math.random() - 0.5) * 200 + 'px');
+                particle.style.setProperty('--y', (Math.random() - 0.5) * 200 + 'px');
+                particle.style.animationDelay = Math.random() * 15 + 's';
+                bg.appendChild(particle);
+            }
+        }
+
+        // Speech Recognition Setup
+        let recognition = null;
+        let isRecording = false;
+        
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.lang = 'nb-NO';
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                document.getElementById('messageInput').value = transcript;
+                sendMessage();
+            };
+            
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                isRecording = false;
+                document.getElementById('voiceBtn').classList.remove('voice-recording');
+            };
+            
+            recognition.onend = () => {
+                isRecording = false;
+                document.getElementById('voiceBtn').classList.remove('voice-recording');
+            };
+        }
+
+        // Toggle Voice Recording
+        function toggleVoice() {
+            if (!recognition) {
+                alert('Tale-gjenkjenning støttes ikke i din nettleser. Prøv Chrome eller Edge.');
+                return;
+            }
+            
+            if (isRecording) {
+                recognition.stop();
+                isRecording = false;
+                document.getElementById('voiceBtn').classList.remove('voice-recording');
+            } else {
+                recognition.start();
+                isRecording = true;
+                document.getElementById('voiceBtn').classList.add('voice-recording');
+            }
+        }
+
+        // Speech Synthesis
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'nb-NO';
+                utterance.rate = 0.9;
+                utterance.pitch = 1;
+                speechSynthesis.speak(utterance);
+            }
+        }
+
+        // AI Response System
+        const aiResponses = {
+            nav: {
+                text: 'Jeg forbereder NAV-søknaden for deg. Dette tar bare noen sekunder...',
+                followUp: () => showNAVForm()
+            },
+            pension: {
+                text: 'Beregner din pensjon basert på opptjening og alder...',
+                followUp: () => showPensionCalc()
+            },
+            doctor: {
+                text: 'Kobler til Helsenorge for å finne ledige timer...',
+                followUp: () => showDoctorBooking()
+            },
+            tax: {
+                text: 'Henter dine skattedata fra Altinn...',
+                followUp: () => showTaxInfo()
+            },
+            medicine: {
+                text: 'Henter din medisinliste fra Helsenorge...',
+                followUp: () => showMedicineList()
+            }
+        };
+
+        // Send Message
+             // REPLACE your old function with this NEW one
+async function sendMessage() {
+    const input = document.getElementById('messageInput');
+    const message = input.value.trim();
+
+    if (!message) return;
+
+    // Add the user's message to the chat interface
+    addMessage(message, 'user');
+    input.value = '';
+
+    // Show the typing indicator
+    showTyping();
+
+    try {
+        // This is the new part: sending the message to your backend server.
+        // Use this URL for testing on your own computer.
+        const response = await fetch('http://localhost:3000/api/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                message: message,
+                model: 'gemini' // You can change this to 'openai' to test the other model
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+
+        const data = await response.json();
+        const aiReply = data.reply; // Get the real AI response from the server
+
+        // Hide the typing indicator
+        hideTyping();
+        
+        // Add the AI's real response to the chat
+        addMessage(aiReply, 'ai');
+        speak(aiReply); 
+
+    } catch (error) {
+        console.error('There was a problem sending the message:', error);
+        hideTyping();
+        addMessage('Sorry, I could not connect to the AI service. Please try again later.', 'ai');
+    }
+    
+    updateMetrics(); // This is one of your original functions, which is good to keep.
+}  
+
+        // Add Message to Chat
+        function addMessage(text, sender) {
+            const container = document.getElementById('messagesContainer');
+            const message = document.createElement('div');
+            message.className = `message ${sender}`;
+            
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.textContent = sender === 'user' ? '👤' : '🤖';
+            
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            
+            const messageText = document.createElement('div');
+            messageText.className = 'message-text';
+            
+            if (typeof text === 'string') {
+                messageText.textContent = text;
+            } else {
+                messageText.innerHTML = text;
+            }
+            
+            const time = document.createElement('div');
+            time.className = 'message-time';
+            time.textContent = new Date().toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' });
+            
+            content.appendChild(messageText);
+            content.appendChild(time);
+            message.appendChild(avatar);
+            message.appendChild(content);
+            
+            container.appendChild(message);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Show Typing Indicator
+        function showTyping() {
+            const typing = document.createElement('div');
+            typing.className = 'message ai';
+            typing.id = 'typingIndicator';
+            typing.innerHTML = `
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <div class="typing-indicator">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('messagesContainer').appendChild(typing);
+        }
+
+        // Hide Typing Indicator
+        function hideTyping() {
+            const typing = document.getElementById('typingIndicator');
+            if (typing) typing.remove();
+        }
+
+        // Show NAV Form
+        function showNAVForm() {
+            const formHtml = `
+                <div class="form-preview">
+                    <div class="form-header">
+                        <div class="form-title">📋 NAV Dagpenger Søknad</div>
+                        <div class="form-status">Auto-utfylt</div>
+                    </div>
+                    <div class="form-field">
+                        <span class="field-label">Navn</span>
+                        <span class="field-value">Kari Nordmann</span>
+                    </div>
+                    <div class="form-field">
+                        <span class="field-label">Fødselsnummer</span>
+                        <span class="field-value">010170-*****</span>
+                    </div>
+                    <div class="form-field">
+                        <span class="field-label">Arbeidssituasjon</span>
+                        <span class="field-value">Permittering</span>
+                    </div>
+                    <div class="form-field">
+                        <span class="field-label">Beregnet ytelse</span>
+                        <span class="field-value">21,450 kr/mnd</span>
+                    </div>
+                    <div class="form-actions">
+                        <button class="form-btn secondary" onclick="previewPDF()">📄 Forhåndsvis</button>
+                        <button class="form-btn primary" onclick="submitForm()">✅ Send til NAV</button>
+                    </div>
+                </div>
+            `;
+            
+            addMessage(formHtml, 'ai');
+        }
+
+        // Show Pension Calculation
+        function showPensionCalc() {
+            const formHtml = `
+                <div class="form-preview">
+                    <div class="form-header">
+                        <div class="form-title">💰 Pensjonsberegning</div>
+                        <div class="form-status">Beregnet</div>
+                    </div>
+                    <div class="form-field">
+                        <span class="field-label">Pensjonsalder</span>
+                        <span class="field-value">67 år (om 2 år)</span>
+                    </div>
+                    <div class="form-field">
+                        <span class="field-label">Opptjeningstid</span>
+                        <span class="field-value">42 år</span>
+                    </div>
+                    <div class="form-field">
+                        <span class="field-label">Månedlig pensjon</span>
+                        <span class="field-value" style="color: var(--secondary); font-weight: 700;">24,750 kr</span>
+                    </div>
+                    <div class="form-field">
+                        <span class="field-label">Årlig pensjon</span>
+                        <span class="field-value">297,000 kr</span>
+                    </div>
+                    <div class="form-actions">
+                        <button class="form-btn secondary">📊 Detaljert Analyse</button>
+                        <button class="form-btn primary">📝 Start Søknad</button>
+                    </div>
+                </div>
+            `;
+            
+            addMessage(formHtml, 'ai');
+        }
+
+        // Quick Actions
+        function quickAction(type) {
+            const actions = {
+                nav: 'Jeg trenger hjelp med NAV-søknad',
+                pension: 'Beregn min pensjon',
+                doctor: 'Jeg trenger legetime',
+                tax: 'Hjelp med skattemelding',
+                medicine: 'Vis mine medisiner'
+            };
+            
+            document.getElementById('messageInput').value = actions[type];
+            sendMessage();
+        }
+
+        // Submit Form
+        function submitForm() {
+            addMessage('✅ Søknaden er sendt til NAV! Referansenummer: EMO-2025-AUG-' + Math.floor(Math.random() * 10000) + '. Du får svar innen 48 timer.', 'ai');
+            speak('Søknaden din er nå sendt. Du vil motta bekreftelse på SMS.');
+            updateActivity('NAV Søknad Sendt');
+        }
+
+        // Update Metrics
+        function updateMetrics() {
+            const cases = document.getElementById('casesCount');
+            const current = parseInt(cases.textContent.replace(',', ''));
+            cases.textContent = (current + 1).toLocaleString();
+            
+            const responseTime = document.getElementById('responseTime');
+            responseTime.textContent = (Math.random() * 0.5 + 0.1).toFixed(1) + 's';
+        }
+
+        // Update Activity Log
+        function updateActivity(activity) {
+            const log = document.getElementById('activityLog');
+            const newActivity = document.createElement('div');
+            newActivity.className = 'form-field';
+            newActivity.innerHTML = `
+                <span class="field-label">${new Date().toLocaleTimeString('no-NO', { hour: '2-digit', minute: '2-digit' })}</span>
+                <span class="field-value">${activity}</span>
+            `;
+            log.insertBefore(newActivity, log.firstChild);
+            if (log.children.length > 5) {
+                log.removeChild(log.lastChild);
+            }
+        }
+
+        // Set View
+        function setView(view) {
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.nav-item').classList.add('active');
+            
+            addMessage(`Bytter til ${view} visning...`, 'ai');
+        }
+
+        // Utility Functions
+        function clearChat() {
+            if (confirm('Er du sikker på at du vil slette hele samtalen?')) {
+                document.getElementById('messagesContainer').innerHTML = '';
+                location.reload();
+            }
+        }
+
+        function exportChat() {
+            alert('Samtalen eksporteres til PDF og sendes til din e-post.');
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function attachFile() {
+            alert('Du kan laste opp: PDF, Word, Excel, Bilder');
+        }
+
+        function previewPDF() {
+            alert('PDF forhåndsvisning åpnes i nytt vindu.');
+        }
+
+        // Initialize
+        window.addEventListener('load', () => {
+            initNeuralBg();
+            
+            // Auto-update metrics
+            setInterval(() => {
+                const cases = document.getElementById('casesCount');
+                const current = parseInt(cases.textContent.replace(',', ''));
+                cases.textContent = (current + Math.floor(Math.random() * 5)).toLocaleString();
+            }, 5000);
+            
+            // Welcome speech
+            setTimeout(() => {
+                speak('Velkommen til EMO. Jeg er klar til å hjelpe deg.');
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
