@@ -2,3 +2,7 @@
 
 backend/node_modules
 backend/.env
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/

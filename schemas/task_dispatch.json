@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://emo-platform/schemas/task_dispatch.json",
+  "title": "TaskDispatch",
+  "description": "Schema for a task dispatched to a multi-agent worker (hermes/grok/claude).",
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Unique identifier for the task.",
+      "minLength": 1
+    },
+    "target_agent": {
+      "type": "string",
+      "description": "Agent the task is routed to.",
+      "enum": ["hermes", "grok", "claude"]
+    },
+    "prompt": {
+      "type": "string",
+      "description": "Prompt/instructions sent to the target agent.",
+      "minLength": 1
+    },
+    "max_turns": {
+      "type": "integer",
+      "description": "Maximum number of conversational turns allowed for the task.",
+      "minimum": 1
+    },
+    "max_budget_usd": {
+      "type": "number",
+      "description": "Maximum spend allowed for the task, in USD.",
+      "minimum": 0
+    },
+    "status": {
+      "type": "string",
+      "description": "Current lifecycle status of the task.",
+      "enum": ["pending", "running", "completed", "failed", "cancelled"]
+    }
+  },
+  "required": [
+    "task_id",
+    "target_agent",
+    "prompt",
+    "max_turns",
+    "max_budget_usd",
+    "status"
+  ],
+  "additionalProperties": false
+}
