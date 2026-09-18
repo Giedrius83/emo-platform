@@ -1,0 +1,146 @@
+@import "tailwindcss";
+
+/*
+ * Terminal design tokens.
+ *
+ * The series and status hexes are the validated dark-mode steps from the
+ * project's data-viz palette: they clear the lightness band, the chroma floor,
+ * colour-vision-deficiency separation and 3:1 contrast against the #141416
+ * panel surface. Do not hand-tune them - re-run the palette validator instead.
+ */
+@theme {
+  --color-plane: #0a0b0d;
+  --color-surface: #141416;
+  --color-raised: #1b1b1f;
+  --color-sunken: #0e0f11;
+  --color-line: #2a2a2e;
+  --color-rule: #3a3a40;
+
+  --color-ink: #ffffff;
+  --color-ink-2: #b9bcc4;
+  --color-ink-3: #8a8d94;
+
+  --color-series-1: #3987e5;
+  --color-series-2: #d95926;
+  --color-series-3: #199e70;
+
+  --color-good: #0ca30c;
+  --color-warning: #fab219;
+  --color-serious: #ec835a;
+  --color-critical: #d03b3b;
+
+  --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-plane);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Numbers are read in columns on a terminal, so they align by default. */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* One hairline ring and one surface, used by every panel. */
+  .panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: 0.375rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+  }
+
+  .panel-title {
+    font-size: 0.6875rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border: 1px solid var(--color-line);
+    border-radius: 0.1875rem;
+    padding: 0.0625rem 0.3125rem;
+    font-size: 0.625rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+    white-space: nowrap;
+  }
+}
+
+/* Terminal scrollbars: present, but recessive. */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-rule) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--color-rule);
+  border-radius: 3px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes pulse-ring {
+  0% { opacity: 0.9; transform: scale(1); }
+  70% { opacity: 0; transform: scale(2.6); }
+  100% { opacity: 0; transform: scale(2.6); }
+}
+.pulse-ring {
+  animation: pulse-ring 2.4s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+  transform-origin: center;
+}
+
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+.row-in {
+  animation: row-in 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-ring,
+  .row-in {
+    animation: none;
+  }
+  /* SMIL packet animation along the handoff mesh. */
+  .packet {
+    display: none;
+  }
+}
+
+/* Travelling pulse along a handoff link: a dashed overlay whose offset animates. */
+@keyframes flow {
+  to {
+    stroke-dashoffset: -30;
+  }
+}
+.packet {
+  stroke-dasharray: 3 27;
+  stroke-linecap: round;
+  animation: flow linear infinite;
+}
