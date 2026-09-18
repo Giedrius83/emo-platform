@@ -23,6 +23,46 @@ For a production build, set the service origin at build time:
 VITE_TELEMETRY_URL=https://telemetry.example.com npm run build
 ```
 
+`VITE_TELEMETRY_URL` is baked into the bundle, so changing it means rebuilding.
+The build checks it for you: it warns when the variable is missing or carries a
+path that will be ignored, and fails outright on a malformed URL or on an `http`
+origin during a Vercel build, since that is guaranteed to be blocked as mixed
+content.
+
+## Deploying to Vercel
+
+`vercel.json` in this directory configures the build. It applies to a Vercel
+project whose **Root Directory** is `apps/trading-terminal`, so it does not
+affect the existing projects that deploy the repository root.
+
+1. Create a new Vercel project from this repository and set Root Directory to
+   `apps/trading-terminal`. The framework, install and build commands and the
+   output directory all come from `vercel.json`.
+2. Add the environment variable, for every environment you deploy:
+
+   ```bash
+   vercel env add VITE_TELEMETRY_URL production
+   vercel env add VITE_TELEMETRY_URL preview
+   ```
+
+   Or set it under Project Settings, Environment Variables. It must be the
+   `https` origin of the telemetry service, for example
+   `https://telemetry.example.com`. Because it is read at build time, an
+   existing deployment will not pick up a change until it is redeployed.
+3. On the telemetry service, set `TELEMETRY_CORS_ORIGINS` to the dashboard's
+   domain so the snapshot fallback can be fetched.
+
+Two things worth knowing before you wire this up.
+
+Vercel cannot host the telemetry service. It holds long-lived WebSocket
+connections, which Vercel functions do not support, so it needs somewhere that
+keeps a process running. Only the dashboard is deployed here.
+
+There is deliberately no rewrite proxying `/ws` to the service. A Vercel rewrite
+cannot carry a WebSocket upgrade, so it would fail at connect time in a way that
+looks like a bug in the dashboard. The browser connects to the service origin
+directly instead, which is what `VITE_TELEMETRY_URL` is for.
+
 ## Layout
 
 | Region | Panels |

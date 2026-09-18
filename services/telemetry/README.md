@@ -109,3 +109,16 @@ frame-shedding under a slow subscriber.
 | `TELEMETRY_PORT` | `8000` | Bind port |
 | `TELEMETRY_CORS_ORIGINS` | `*` | Comma-separated allowed origins |
 | `LOG_LEVEL` | `INFO` | Python log level |
+
+When the dashboard is deployed somewhere else, such as the Vercel project in
+`apps/trading-terminal`, set `TELEMETRY_CORS_ORIGINS` to that domain so its
+snapshot fallback can be fetched:
+
+```bash
+TELEMETRY_CORS_ORIGINS=https://terminal.example.com ./run.sh
+```
+
+The service must be reachable over `https`, so that the socket can upgrade to
+`wss` from an `https` dashboard, and it must run somewhere that keeps a process
+alive. Vercel functions cannot hold the long-lived WebSocket connections this
+service depends on.
