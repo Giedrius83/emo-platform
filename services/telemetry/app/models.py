@@ -25,6 +25,15 @@ class FrameType(str, Enum):
     ACTIVITY = "activity"
     SWARM = "swarm"
     TAILS = "tails"
+    PORTFOLIO = "portfolio"
+
+
+class DataSource(str, Enum):
+    """Where the account numbers come from. The dashboard labels everything by this."""
+
+    SIMULATED = "simulated"
+    ETORO_REAL = "etoro-real"
+    ETORO_DEMO = "etoro-demo"
 
 
 class NodeStatus(str, Enum):
@@ -58,6 +67,8 @@ class Wallet(BaseModel):
     fills: int
     exposure_usd: float = 0.0
     start_equity_usd: float = 0.0
+    currency: str = "ETH"
+    cash_usd: float = 0.0
 
 
 class SessionInfo(BaseModel):
@@ -68,6 +79,9 @@ class SessionInfo(BaseModel):
     bots_total: int = 0
     mode: str = "LIVE"
     region: str = "eu-north-1"
+    source: DataSource = DataSource.SIMULATED
+    swarm_live: bool = Field(default=False, description="True while real bots are publishing.")
+    source_error: str | None = Field(default=None, description="Last broker error, if the feed is failing.")
 
 
 class BotNode(BaseModel):
@@ -146,6 +160,65 @@ class SwarmState(BaseModel):
     pipeline: Pipeline
 
 
+class Position(BaseModel):
+    """One open position on the broker account."""
+
+    position_id: int
+    instrument_id: int
+    symbol: str
+    name: str
+    logo: str | None = None
+    direction: Literal["long", "short"]
+    leverage: int
+    units: float
+    invested: float
+    value: float
+    pnl: float
+    pnl_pct: float
+    open_rate: float
+    current_rate: float | None = None
+    stop_loss: float | None = None
+    take_profit: float | None = None
+    opened_at: int = Field(description="Epoch milliseconds.")
+
+
+class ClosedTrade(BaseModel):
+    position_id: int
+    instrument_id: int
+    symbol: str
+    name: str
+    logo: str | None = None
+    direction: Literal["long", "short"]
+    leverage: int
+    units: float
+    invested: float
+    open_rate: float
+    close_rate: float
+    opened_at: int
+    closed_at: int
+    net_profit: float
+    fees: float = 0.0
+
+
+class Portfolio(BaseModel):
+    """The broker account as the dashboard shows it."""
+
+    source: DataSource
+    currency: str = "USD"
+    equity: float = 0.0
+    cash: float = 0.0
+    invested: float = 0.0
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = Field(0.0, description="Net profit of trades closed since realized_since.")
+    realized_since: int = 0
+    trades_count: int = 0
+    wins: int = 0
+    positions: list[Position] = Field(default_factory=list)
+    trades: list[ClosedTrade] = Field(default_factory=list, description="Most recent closed trades first.")
+    updated_at: int = 0
+    error: str | None = None
+
+
 class Snapshot(BaseModel):
     session: SessionInfo
     wallet: Wallet
@@ -153,6 +226,7 @@ class Snapshot(BaseModel):
     swarm: SwarmState
     tails: TailDistribution
     activity: list[ActivityEvent]
+    portfolio: Portfolio | None = None
 
 
 class Tick(BaseModel):

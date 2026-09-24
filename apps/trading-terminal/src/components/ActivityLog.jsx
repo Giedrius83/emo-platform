@@ -3,10 +3,12 @@ import { Panel, StatusDot } from './Panel.jsx'
 import { INK_2, INK_3, LOG_LEVEL, STATUS, pnlColor } from '../lib/theme.js'
 import { fmtSignedUsd, fmtTime } from '../lib/format.js'
 
-const KINDS = ['ALL', 'HANDOFF', 'ORDER', 'SIGNAL', 'NODE', 'CONSENSUS']
+const KINDS = ['ALL', 'OPEN', 'CLOSE', 'ORDER', 'HANDOFF', 'SIGNAL', 'NODE', 'CONSENSUS']
 const RENDER_LIMIT = 140
 
 const KIND_TONE = {
+  OPEN: '#3987e5',
+  CLOSE: INK_2,
   HANDOFF: INK_2,
   ORDER: STATUS.good,
   SIGNAL: '#3987e5',
@@ -14,15 +16,26 @@ const KIND_TONE = {
   CONSENSUS: '#199e70',
 }
 
+/** Clock time for today; date and minute for anything older, so replayed trades read as history. */
+function fmtStamp(ms) {
+  const d = new Date(ms)
+  if (d.toDateString() === new Date().toDateString()) return fmtTime(ms)
+  const day = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+  const hm = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+  return `${day} ${hm}`
+}
+
 function Row({ event }) {
   const level = LOG_LEVEL[event.level] ?? LOG_LEVEL.info
   const kindTone = KIND_TONE[event.kind] ?? INK_3
-  const isOrder = event.kind === 'ORDER' && typeof event.value === 'number'
+  const isOrder = (event.kind === 'ORDER' || event.kind === 'CLOSE') && typeof event.value === 'number'
 
   return (
     <li className="row-in flex items-baseline gap-2 border-b border-line/50 px-3 py-1 text-[11px] leading-snug hover:bg-raised">
-      <span className="num shrink-0 text-ink-3">{fmtTime(event.t)}</span>
-      <span className="shrink-0 font-bold" style={{ color: level.color }} title={level.label} aria-label={level.label}>
+      <span className="num shrink-0 text-ink-3" title={new Date(event.t).toLocaleString()}>
+        {fmtStamp(event.t)}
+      </span>
+      <span className="w-2.5 shrink-0 text-center font-bold" style={{ color: level.color }} title={level.label} aria-label={level.label}>
         {level.glyph}
       </span>
       <span className="num w-[64px] shrink-0 truncate font-semibold tracking-wide" style={{ color: kindTone }}>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Panel } from './Panel.jsx'
+import { Panel, SimulatedBadge } from './Panel.jsx'
 import { useElementSize } from '../hooks/useElementSize.js'
 import { BLUE_RAMP, INK, INK_2, INK_3, NODE_STATUS, STATUS, SUNKEN, latencyColor } from '../lib/theme.js'
 import { fmtMs, fmtRate } from '../lib/format.js'
@@ -31,7 +31,7 @@ function curve(ax, ay, bx, by, bow) {
   return `M${ax.toFixed(2)},${ay.toFixed(2)}Q${cx.toFixed(2)},${cy.toFixed(2)} ${bx.toFixed(2)},${by.toFixed(2)}`
 }
 
-export function HandoffGraph({ swarm }) {
+export function HandoffGraph({ swarm, simulated }) {
   const [ref, { width, height }] = useElementSize()
   const [hover, setHover] = useState(null)
 
@@ -86,6 +86,7 @@ export function HandoffGraph({ swarm }) {
   return (
     <Panel
       title="Handoff graph"
+      badge={<SimulatedBadge show={simulated} />}
       subtitle={`${swarm?.edges?.length ?? 0} links · ${SLA_MS}ms SLA`}
       right={
         breaches ? (

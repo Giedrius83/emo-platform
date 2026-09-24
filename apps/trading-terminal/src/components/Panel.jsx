@@ -1,10 +1,11 @@
 /** Panel shell: hairline surface, uppercase title, optional right-hand slot. */
-export function Panel({ title, subtitle, right, children, className = '', bodyClassName = '' }) {
+export function Panel({ title, subtitle, badge, right, children, className = '', bodyClassName = '' }) {
   return (
     <section className={`panel @container ${className}`}>
       <header className="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="panel-title truncate">{title}</h2>
+          {badge}
           {subtitle ? <span className="hidden truncate text-[10px] text-ink-3/80 @md:inline">{subtitle}</span> : null}
         </div>
         {right ? <div className="flex shrink-0 items-center gap-2">{right}</div> : null}
@@ -45,5 +46,22 @@ export function Meter({ value, color, height = 3, label }) {
     >
       <div className="h-full rounded-sm transition-[width] duration-500" style={{ width: `${pct}%`, background: color }} />
     </div>
+  )
+}
+
+/**
+ * Marks a panel whose data is invented. Anything beside real money that is not
+ * real must say so on its face, not in a tooltip.
+ */
+export function SimulatedBadge({ show, hint = 'Bots are not reporting yet: this is a simulated swarm.' }) {
+  if (!show) return null
+  return (
+    <span
+      className="chip shrink-0"
+      style={{ borderColor: 'var(--color-warning)', color: 'var(--color-warning)' }}
+      title={hint}
+    >
+      ◐ simulated
+    </span>
   )
 }

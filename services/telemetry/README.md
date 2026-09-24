@@ -14,6 +14,37 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 `run.sh` honours `TELEMETRY_HOST` and `TELEMETRY_PORT`, and passes extra flags
 through to uvicorn (`./run.sh --reload`).
 
+## Your real eToro account
+
+Give the service eToro API keys and the dashboard shows your real account:
+account value, open positions with stop-loss and take-profit, every closed trade
+with its result, and a PnL curve rebuilt from those trades. Without keys, the
+account numbers are simulated and the dashboard says so on screen.
+
+The service only ever calls read (GET) routes. It cannot open, change or close a
+trade, so create a key with **read** permission only.
+
+| Variable | Meaning |
+| --- | --- |
+| `ETORO_API_KEY` | The public API key, sent as `x-api-key` |
+| `ETORO_USER_KEY` | Your user key, sent as `x-user-key` |
+| `ETORO_ACCOUNT` | `real` (default) or `demo` |
+| `ETORO_POLL_SECONDS` | How often to read positions, default `10` |
+| `ETORO_HISTORY_DAYS` | How far back to read closed trades, default `90` |
+| `ETORO_API_BASE` | API host, default `https://public-api.etoro.com` |
+
+On the VPS, `deploy/vps-deploy.sh` asks for the keys once and stores them in a
+git-ignored `.env` file readable only by you. `GET /health` reports whether
+eToro is connected, and the exact error if not.
+
+Positions are polled every 10 seconds and closed trades every minute, or at once
+when a position disappears. That is about 7 requests a minute, well inside
+eToro's limit of 60.
+
+The swarm panels (handoff graph, pipeline, bot tiles) still need the bots to
+report their own activity to `/api/ingest`; eToro cannot tell which bot placed a
+trade. Until they do, those panels are marked SIMULATED.
+
 ## Deploy to a VPS with Docker
 
 From the repository root, `docker compose up -d --build` builds and starts the
@@ -27,6 +58,9 @@ Cloudflare quick tunnel and prints its URL. Run it on the VPS as `opc`:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Giedrius83/emo-platform/main/deploy/vps-deploy.sh | bash
 ```
+
+It asks for your eToro keys the first time (press Enter to skip), and its
+summary says whether eToro connected.
 
 Put the printed `https://…trycloudflare.com` origin into Vercel as
 `VITE_TELEMETRY_URL`. Use the `https` form, not `wss`: the dashboard derives the
