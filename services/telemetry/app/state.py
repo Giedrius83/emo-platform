@@ -38,36 +38,36 @@ from .models import (
 )
 
 # The eight sub-bots the terminal ships with, in display order.
+# The swarm as it runs in Grok Bot. Order is display order.
 BOT_ROSTER: list[tuple[str, str, str]] = [
-    ("SCOUT", "Mempool discovery", "scanning pending pool"),
-    ("SIGNAL", "Alpha extraction", "ranking candidates"),
-    ("QUANT", "Model inference", "pricing tail risk"),
-    ("VECTOR", "Route solver", "solving split route"),
-    ("NEXUS", "Consensus arbiter", "collecting votes"),
-    ("PULSE", "Market pulse", "tracking depth"),
-    ("GUARD", "Risk gate", "enforcing limits"),
-    ("CORE", "Execution engine", "submitting bundle"),
+    ("SCOUT", "Finds setups", "scanning markets"),
+    ("PLANNER", "Plans the session", "planning the day"),
+    ("QUANT", "Scores and approves", "scoring setups"),
+    ("GUARD", "Risk check", "checking risk limits"),
+    ("TRADER", "Places orders on eToro", "watching open trades"),
+    ("MANAGER", "Runs the swarm", "coordinating the swarm"),
+    ("ORKA", "Monitors the bots", "checking bot health"),
+    ("CODER", "Builds tools", "maintaining tools"),
 ]
 
-# Directed links of the handoff mesh: how work actually flows through the swarm.
+# How work is known to flow. A handoff between any other pair of known bots
+# adds its own link the first time it is reported.
 HANDOFF_LINKS: list[tuple[str, str]] = [
-    ("SCOUT", "SIGNAL"),
-    ("SCOUT", "PULSE"),
-    ("SIGNAL", "QUANT"),
-    ("PULSE", "QUANT"),
-    ("QUANT", "VECTOR"),
-    ("QUANT", "NEXUS"),
-    ("VECTOR", "NEXUS"),
-    ("NEXUS", "GUARD"),
-    ("GUARD", "CORE"),
-    ("CORE", "PULSE"),
-    ("PULSE", "SIGNAL"),
+    ("PLANNER", "SCOUT"),
+    ("SCOUT", "QUANT"),
+    ("QUANT", "GUARD"),
+    ("GUARD", "TRADER"),
+    ("TRADER", "MANAGER"),
+    ("MANAGER", "SCOUT"),
+    ("ORKA", "GUARD"),
+    ("ORKA", "MANAGER"),
+    ("CODER", "PLANNER"),
 ]
 
 PIPELINE_STAGES: list[tuple[str, str, list[str]]] = [
-    ("SIGNAL", "Signal", ["SCOUT", "SIGNAL", "PULSE"]),
-    ("STRATEGY", "Strategy", ["QUANT", "VECTOR", "NEXUS"]),
-    ("EXECUTION", "Execution", ["GUARD", "CORE"]),
+    ("SIGNAL", "Signal", ["SCOUT", "PLANNER"]),
+    ("STRATEGY", "Strategy", ["QUANT", "GUARD"]),
+    ("EXECUTION", "Execution", ["TRADER", "MANAGER"]),
 ]
 
 TAIL_HORIZONS: list[tuple[str, str, int]] = [
@@ -89,6 +89,8 @@ ACTIVITY_LIMIT = 300
 # sample a minute, so it needs more room than the 10-minute simulated window.
 BROKER_HISTORY_LIMIT = 3000
 LIVE_SAMPLE_MS = 60_000
+# A bot that has said nothing for this long is shown idle, not online.
+STALE_AFTER_MS = 15 * 60_000
 TAIL_THRESHOLD = -2.5  # percent
 
 
@@ -369,6 +371,71 @@ class TerminalState:
         )
         self.activity.append(event)
         return event
+
+    # -- real bots ---------------------------------------------------------------
+
+    def add_edge(self, source: str, target: str) -> HandoffEdge:
+        edge = HandoffEdge(source=source, target=target, latency_ms=0.0, throughput=0.0, volume=0, saturation=0.0)
+        self.edges[(source, target)] = edge
+        return edge
+
+    def touch(self, bot_id: str) -> BotNode | None:
+        """Record that a bot just did something."""
+        bot = self.bots.get(bot_id)
+        if bot is None:
+            return None
+        bot.last_seen = now_ms()
+        if bot.status in (NodeStatus.IDLE, NodeStatus.OFFLINE):
+            bot.status = NodeStatus.ONLINE
+        return bot
+
+    def reset_swarm_for_live(self) -> None:
+        """Forget the simulation: only bots that report will show as active."""
+        for bot in self.bots.values():
+            bot.status = NodeStatus.IDLE
+            bot.task = "not reporting yet"
+            bot.load = 0.0
+            bot.throughput = 0.0
+            bot.queue_depth = 0
+            bot.last_ping_ms = 0.0
+            bot.last_seen = 0
+        for edge in self.edges.values():
+            edge.latency_ms = 0.0
+            edge.throughput = 0.0
+            edge.saturation = 0.0
+            edge.volume = 0
+        if self.source is DataSource.SIMULATED:
+            self.activity.clear()  # invented trades must not sit beside real bot reports
+        self.refresh_live(now_ms())
+
+    def refresh_live(self, now: int) -> None:
+        """Derive swarm status from real reports: no randomness, no invention."""
+        for bot in self.bots.values():
+            bot.uptime_s = 0  # unknown for hosted bots; the tile shows last seen instead
+            if bot.status is NodeStatus.ONLINE and now - bot.last_seen > STALE_AFTER_MS:
+                bot.status = NodeStatus.IDLE
+        for edge in self.edges.values():
+            # Throughput decays so a link glows while handoffs flow, then cools.
+            edge.throughput = round(edge.throughput * 0.9, 2)
+            edge.saturation = min(1.0, edge.throughput / 5.0)
+
+        active = 0
+        for stage in self.pipeline.stages:
+            members = [self.bots[m] for m in stage.members if m in self.bots]
+            live = [m for m in members if m.status in (NodeStatus.ONLINE, NodeStatus.DEGRADED)]
+            active += len(live)
+            stage.ok = all(m.status is not NodeStatus.OFFLINE for m in members)
+            stage.inflight = sum(m.queue_depth for m in members)
+            pings = [m.last_ping_ms for m in live if m.last_ping_ms]
+            stage.latency_ms = round(sum(pings) / len(pings), 2) if pings else 0.0
+            stage.throughput = round(sum(m.throughput for m in live), 1)
+            stage.state = "ACTIVE" if live else "IDLE"
+
+        reporting = [b for b in self.bots.values() if b.status in (NodeStatus.ONLINE, NodeStatus.DEGRADED)]
+        self.pipeline.votes_for = len(reporting)
+        self.pipeline.votes_against = len(self.bots) - len(reporting)
+        self.pipeline.consensus_pct = round(100.0 * len(reporting) / max(1, len(self.bots)), 1)
+        self.pipeline.decision = "ACTIVE" if reporting else "IDLE"
 
     # -- broker feed -----------------------------------------------------------
 

@@ -18,7 +18,7 @@ import logging
 import os
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import TypeAdapter, ValidationError
 
@@ -57,6 +57,24 @@ def _build_feed() -> EtoroFeed | None:
         poll_s=float(os.environ.get("ETORO_POLL_SECONDS", "10")),
         history_days=int(os.environ.get("ETORO_HISTORY_DAYS", "90")),
     )
+
+
+# The dashboard URL is public, so without a token anyone who has it could
+# post fake bot activity. When INGEST_TOKEN is set, publishers must send it.
+INGEST_TOKEN = os.environ.get("INGEST_TOKEN", "").strip()
+
+
+def _check_token(header: str | None, query: str | None) -> None:
+    if INGEST_TOKEN and INGEST_TOKEN not in (header, query):
+        raise HTTPException(status_code=401, detail="missing or wrong ingest token")
+
+
+def _names_in(event) -> list[str]:
+    return [getattr(event, f) for f in ("bot_id", "source", "target") if getattr(event, f, None)]
+
+
+def _unknown_names(events) -> list[str]:
+    return sorted({n for e in events for n in _names_in(e) if n not in hub.state.bots})
 
 
 _feed = _build_feed()
@@ -102,6 +120,8 @@ async def healthz() -> dict[str, object]:
         "simulated": not hub.simulator.dormant,
         "session": hub.state.session.id,
         "source": hub.state.source.value,
+        "bots_live": hub.simulator.live,
+        "ingest_protected": bool(INGEST_TOKEN),
         "etoro": _etoro_status(),
     }
 
@@ -127,16 +147,32 @@ async def snapshot() -> dict[str, object]:
 
 
 @app.post("/api/ingest")
-async def ingest(batch: IngestBatch) -> dict[str, object]:
+async def ingest(
+    batch: IngestBatch,
+    x_ingest_token: str | None = Header(default=None),
+    token: str | None = Query(default=None),
+) -> dict[str, object]:
     """Accept a batch of Grok-bot events and fan the result out to dashboards."""
+    _check_token(x_ingest_token, token)
+    unknown = _unknown_names(batch.events)
+    if len(unknown) == len({n for e in batch.events for n in _names_in(e)}):
+        # Nothing recognisable: do not retire the simulation over a typo.
+        return {"accepted": 0, "logged": 0, "unknown_bots": unknown, "known_bots": list(hub.state.bots)}
+    hub.go_live()
     produced = []
     for event in batch.events:
         produced.extend(apply_event(hub.state, event))
     hub.simulator.note_external_event()
     if produced:
         hub.publish_activity(produced)
-    hub.broadcast(hub.frame(FrameType.SWARM, hub.state.swarm().model_dump(mode="json")))
-    return {"accepted": len(batch.events), "logged": len(produced)}
+    swarm = hub.state.swarm().model_dump(mode="json")
+    swarm["session"] = hub.state.session_info().model_dump(mode="json")
+    hub.broadcast(hub.frame(FrameType.SWARM, swarm))
+    result: dict[str, object] = {"accepted": len(batch.events), "logged": len(produced)}
+    if unknown:
+        result["unknown_bots"] = unknown
+        result["known_bots"] = list(hub.state.bots)
+    return result
 
 
 @app.websocket("/ws/telemetry")
@@ -182,8 +218,11 @@ async def _drain_client(websocket: WebSocket) -> None:
 
 
 @app.websocket("/ws/ingest")
-async def ingest_socket(websocket: WebSocket) -> None:
+async def ingest_socket(websocket: WebSocket, token: str | None = Query(default=None)) -> None:
     """Persistent publish socket for Grok bots: one JSON event per message."""
+    if INGEST_TOKEN and token != INGEST_TOKEN and websocket.headers.get("x-ingest-token") != INGEST_TOKEN:
+        await websocket.close(code=4401)
+        return
     await websocket.accept()
     peer = websocket.client.host if websocket.client else "?"
     log.info("publisher connected from %s", peer)
@@ -195,6 +234,11 @@ async def ingest_socket(websocket: WebSocket) -> None:
             except ValidationError as exc:
                 await websocket.send_json({"ok": False, "error": exc.errors(include_url=False)[:3]})
                 continue
+            unknown = _unknown_names([event])
+            if unknown:
+                await websocket.send_json({"ok": False, "unknown_bots": unknown, "known_bots": list(hub.state.bots)})
+                continue
+            hub.go_live()
             produced = apply_event(hub.state, event)
             hub.simulator.note_external_event()
             if produced:

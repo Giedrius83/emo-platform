@@ -9,14 +9,14 @@ const PAD = { x: 34, y: 30 }
 
 /** Fixed layout: work flows left to right, so the mesh reads as a pipeline. */
 const LAYOUT = {
-  SCOUT: [0.0, 0.5],
-  SIGNAL: [0.2, 0.12],
-  PULSE: [0.2, 0.88],
-  QUANT: [0.42, 0.5],
-  VECTOR: [0.62, 0.12],
-  NEXUS: [0.62, 0.88],
-  GUARD: [0.82, 0.5],
-  CORE: [1.0, 0.5],
+  PLANNER: [0.14, 0.04],
+  MANAGER: [0.6, 0.04],
+  SCOUT: [0.0, 0.52],
+  QUANT: [0.33, 0.52],
+  GUARD: [0.66, 0.52],
+  TRADER: [1.0, 0.52],
+  CODER: [0.12, 1.0],
+  ORKA: [0.5, 1.0],
 }
 
 /** Perpendicular bow, so parallel links stay individually traceable. */
@@ -167,7 +167,7 @@ export function HandoffGraph({ swarm, simulated }) {
                     fill={active ? INK : INK_2}
                     className="num"
                   >
-                    {Math.round(node.load * 100)}
+                    {node.load ? Math.round(node.load * 100) : ''}
                   </text>
                   <text
                     textAnchor="middle"
@@ -237,7 +237,7 @@ export function HandoffGraph({ swarm, simulated }) {
           width = handoffs/s
         </span>
         <span className="num">node ring &amp; centre = load %</span>
-        {worst ? (
+        {worst && worst.latency_ms > 0 ? (
           <span className="num ml-auto">
             slowest {worst.source}→{worst.target}{' '}
             <span style={{ color: worst.latency_ms >= SLA_MS ? STATUS.critical : INK_2 }}>{fmtMs(worst.latency_ms)}</span>

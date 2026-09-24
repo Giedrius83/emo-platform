@@ -112,7 +112,7 @@ def test_network_status_follows_the_worst_node(state: TerminalState) -> None:
     assert state.session_info().network == "ACTIVE"
     state.bots["SCOUT"].status = NodeStatus.DEGRADED
     assert state.session_info().network == "PARTIAL"
-    state.bots["CORE"].status = NodeStatus.OFFLINE
+    state.bots["TRADER"].status = NodeStatus.OFFLINE
     info = state.session_info()
     assert info.network == "DEGRADED"
     assert info.bots_connected == 6
@@ -130,7 +130,6 @@ def test_snapshot_carries_every_panel(client: TestClient) -> None:
 
 
 def test_heartbeat_updates_the_node_and_logs_a_transition(client: TestClient) -> None:
-    before = len(hub.state.activity)
     response = client.post(
         "/api/ingest",
         json={
@@ -153,7 +152,8 @@ def test_heartbeat_updates_the_node_and_logs_a_transition(client: TestClient) ->
     assert bot.status is NodeStatus.DEGRADED
     assert bot.last_ping_ms == pytest.approx(44.5)
     assert bot.task == "replaying risk book"
-    assert len(hub.state.activity) == before + 1
+    last = hub.state.activity[-1]
+    assert last.source == "GUARD" and last.kind == "NODE" and "degraded" in last.message
 
 
 def test_fill_books_realized_pnl(client: TestClient) -> None:
@@ -164,7 +164,7 @@ def test_fill_books_realized_pnl(client: TestClient) -> None:
             "events": [
                 {
                     "kind": "fill",
-                    "bot_id": "CORE",
+                    "bot_id": "TRADER",
                     "side": "BUY",
                     "symbol": "ETH/USDC",
                     "size_eth": 0.5,
@@ -178,11 +178,13 @@ def test_fill_books_realized_pnl(client: TestClient) -> None:
 
 
 def test_handoff_smooths_latency_rather_than_jumping(client: TestClient) -> None:
-    edge = hub.state.edges[("GUARD", "CORE")]
+    client.post("/api/ingest", json={"events": [{"kind": "handoff", "source": "GUARD", "target": "TRADER"}]})
+    edge = hub.state.edges[("GUARD", "TRADER")]
     edge.latency_ms = 10.0
+    edge.volume = 5
     client.post(
         "/api/ingest",
-        json={"events": [{"kind": "handoff", "source": "GUARD", "target": "CORE", "latency_ms": 110.0}]},
+        json={"events": [{"kind": "handoff", "source": "GUARD", "target": "TRADER", "latency_ms": 110.0}]},
     )
     assert 10.0 < edge.latency_ms < 110.0
 
@@ -231,7 +233,7 @@ def test_sequence_numbers_are_monotonic(client: TestClient) -> None:
 
 def test_publisher_socket_acks_and_rejects(client: TestClient) -> None:
     with client.websocket_connect("/ws/ingest") as socket:
-        socket.send_text(json.dumps({"kind": "handoff", "source": "SCOUT", "target": "SIGNAL", "latency_ms": 4.0}))
+        socket.send_text(json.dumps({"kind": "handoff", "source": "SCOUT", "target": "QUANT", "latency_ms": 4.0}))
         assert socket.receive_json()["ok"] is True
         socket.send_text(json.dumps({"kind": "handoff", "source": "SCOUT"}))
         assert socket.receive_json()["ok"] is False

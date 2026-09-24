@@ -45,16 +45,18 @@ class SwarmSimulator:
         self.vol = 1.0
         self.skew = -0.25
         self._last_external_event = 0.0
+        self.live = False
 
     # -- external publishers -------------------------------------------------
 
     def note_external_event(self) -> None:
         self._last_external_event = time.monotonic()
+        self.live = True
 
     @property
     def dormant(self) -> bool:
-        """True while real bots are publishing, so the simulator keeps quiet."""
-        return (time.monotonic() - self._last_external_event) < IDLE_TAKEOVER_S
+        """True once a real bot has reported; the simulator never resumes."""
+        return self.live
 
     # -- fast loop (price + equity) ------------------------------------------
 
@@ -130,15 +132,15 @@ class SwarmSimulator:
 
     def _task_for(self, bot_id: str, load: float) -> str:
         pool = {
-            "SCOUT": ["scanning pending pool", "tracing bundle origin", "indexing new pairs"],
-            "SIGNAL": ["ranking candidates", "scoring momentum burst", "pruning weak alpha"],
-            "QUANT": ["pricing tail risk", "fitting vol surface", "running MC sweep"],
-            "VECTOR": ["solving split route", "simulating slippage", "optimising gas path"],
-            "NEXUS": ["collecting votes", "arbitrating consensus", "sealing decision"],
-            "PULSE": ["tracking depth", "watching funding", "sampling orderbook"],
-            "GUARD": ["enforcing limits", "checking exposure", "vetoing over-size"],
-            "CORE": ["submitting bundle", "awaiting inclusion", "settling fills"],
-        }[bot_id]
+            "SCOUT": ["scanning markets", "ranking movers", "reading X sentiment"],
+            "PLANNER": ["planning the day", "setting watchlist", "reviewing results"],
+            "QUANT": ["scoring setups", "checking indicators", "sizing entries"],
+            "GUARD": ["checking risk limits", "reviewing exposure", "vetting stop-loss"],
+            "TRADER": ["watching open trades", "placing order", "awaiting approval"],
+            "MANAGER": ["coordinating the swarm", "reviewing cash", "assigning work"],
+            "ORKA": ["checking bot health", "restarting a pass", "reporting status"],
+            "CODER": ["maintaining tools", "fixing a script", "testing a tool"],
+        }.get(bot_id, ["working"])
         if load > 0.88:
             return f"{pool[0]} (saturated)"
         return self.rng.choice(pool)
@@ -242,7 +244,7 @@ class SwarmSimulator:
                 else:
                     events.append(
                         s.log(
-                            "NEXUS",
+                            "MANAGER",
                             "CONSENSUS",
                             f"quorum {s.pipeline.consensus_pct:.1f}% → {s.pipeline.decision}",
                             level=ActivityLevel.SUCCESS,

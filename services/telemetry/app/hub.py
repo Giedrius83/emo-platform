@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from typing import Any
 
 from .etoro import EtoroFeed
@@ -57,6 +58,14 @@ class TelemetryHub:
         self.subscribers: set[Subscriber] = set()
         self._tasks: list[asyncio.Task[None]] = []
         self.feed: EtoroFeed | None = None
+
+    def go_live(self) -> None:
+        """A real bot reported: retire the simulated swarm, once."""
+        if self.simulator.live:
+            return
+        self.simulator.live = True
+        self.state.reset_swarm_for_live()
+        log.info("real bot activity received: simulated swarm retired")
 
     @property
     def broker(self) -> bool:
@@ -120,9 +129,11 @@ class TelemetryHub:
     async def _swarm_loop(self) -> None:
         while True:
             try:
-                self.state.swarm_live = self.simulator.dormant
+                self.state.swarm_live = self.simulator.live
                 self.state.source_error = self.feed.last_error if self.feed else None
-                if not self.simulator.dormant:
+                if self.simulator.live:
+                    self.state.refresh_live(int(time.time() * 1000))
+                else:
                     self.simulator.step_swarm()
                 swarm = self.state.swarm().model_dump(mode="json")
                 swarm["session"] = self.state.session_info().model_dump(mode="json")

@@ -65,6 +65,14 @@ if ! grep -q '^ETORO_USER_KEY=.' "$ENV_FILE" 2>/dev/null; then
   fi
 fi
 
+# Private token so only your bots can post to the (public) dashboard address.
+if ! grep -q '^INGEST_TOKEN=.' "$ENV_FILE" 2>/dev/null; then
+  umask 077
+  echo "INGEST_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(16))')" >> "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+fi
+INGEST_TOKEN=$(grep '^INGEST_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
+
 # 4. Build and start ------------------------------------------------------------
 say "Building and starting the telemetry service"
 cd "$APP_DIR"
@@ -143,5 +151,19 @@ cat <<EOF
 
  Set this in Vercel as VITE_TELEMETRY_URL (https, not wss):
      $URL
+==================================================================
+
+ CONNECT YOUR GROK BOTS (details: deploy/GROK_BOTS.md)
+
+ 1) Send this to your Manager bot:
+
+Create the file ~/dashboard.env on our shared computer with exactly these two lines,
+then confirm it exists with: cat ~/dashboard.env
+
+DASHBOARD_URL=$URL
+DASHBOARD_TOKEN=$INGEST_TOKEN
+
+ 2) Add the reporting block from deploy/GROK_BOTS.md to each bot's
+    instructions, with that bot's own name.
 ==================================================================
 EOF
