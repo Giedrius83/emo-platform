@@ -62,6 +62,7 @@ app.add_middleware(
 )
 
 
+@app.get("/health")
 @app.get("/healthz")
 async def healthz() -> dict[str, object]:
     return {

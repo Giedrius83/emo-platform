@@ -14,6 +14,29 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 `run.sh` honours `TELEMETRY_HOST` and `TELEMETRY_PORT`, and passes extra flags
 through to uvicorn (`./run.sh --reload`).
 
+## Deploy to a VPS with Docker
+
+From the repository root, `docker compose up -d --build` builds and starts the
+service. The port is bound to `127.0.0.1:8000` only, so nothing is exposed on
+the public interface; a tunnel reaches it locally.
+
+On Oracle Linux 9, `deploy/vps-deploy.sh` does the whole thing: installs Docker
+CE, clones or updates the repository, builds, waits for `/health`, starts a
+Cloudflare quick tunnel and prints its URL. Run it on the VPS as `opc`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Giedrius83/emo-platform/main/deploy/vps-deploy.sh | bash
+```
+
+Put the printed `https://…trycloudflare.com` origin into Vercel as
+`VITE_TELEMETRY_URL`. Use the `https` form, not `wss`: the dashboard derives the
+socket URL from it, and the build rejects a `wss` value.
+
+A quick tunnel gets a new random hostname every time cloudflared restarts,
+including after a reboot, and the dashboard bakes the URL in at build time. So
+each restart means updating the Vercel variable and redeploying. For a stable
+address, use a named Cloudflare tunnel on your own domain instead.
+
 ## Endpoints
 
 | Endpoint | Purpose |

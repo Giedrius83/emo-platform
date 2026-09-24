@@ -50,6 +50,14 @@ function validateTelemetryUrl() {
         )
       }
 
+      if (/^wss?:$/.test(url.protocol)) {
+        const fixed = `${url.protocol === 'wss:' ? 'https' : 'http'}://${url.host}`
+        throw new Error(
+          `VITE_TELEMETRY_URL is "${raw}". Give the http(s) origin instead, "${fixed}": ` +
+            'the app derives the wss socket URL from it and also needs it for the REST snapshot.',
+        )
+      }
+
       if (!/^https?:$/.test(url.protocol)) {
         throw new Error(`VITE_TELEMETRY_URL must use http or https, got "${url.protocol}".`)
       }
