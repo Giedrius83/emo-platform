@@ -1,0 +1,21 @@
+# Telemetry backend for the trading terminal.
+#   docker compose up -d --build
+#   curl http://localhost:8000/health
+services:
+  telemetry:
+    build: ./services/telemetry
+    container_name: emo-telemetry
+    restart: unless-stopped
+    # Bound to loopback only: the Cloudflare tunnel reaches it locally, so the
+    # port is never exposed on the VPS's public interface.
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      TELEMETRY_CORS_ORIGINS: ${TELEMETRY_CORS_ORIGINS:-*}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
