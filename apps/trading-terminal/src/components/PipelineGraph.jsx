@@ -4,6 +4,8 @@ import { INK_2, INK_3, NODE_STATUS, SERIES, STATUS, SUNKEN } from '../lib/theme.
 import { fmtMs, fmtRate } from '../lib/format.js'
 
 const STAGE_STATE = {
+  ACTIVE: { color: STATUS.good, glyph: '▸' },
+  IDLE: { color: INK_3, glyph: '·' },
   STREAMING: { color: STATUS.good, glyph: '▸' },
   BACKPRESSURE: { color: STATUS.warning, glyph: '≡' },
   PARTIAL: { color: STATUS.serious, glyph: '◐' },
@@ -23,7 +25,7 @@ function arc(cx, cy, r, fromDeg, toDeg) {
   return `M${x1.toFixed(2)},${y1.toFixed(2)}A${r},${r} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)}`
 }
 
-function ConsensusGauge({ pipeline }) {
+function ConsensusGauge({ pipeline, live }) {
   const pct = pipeline?.consensus_pct ?? 0
   const quorum = pipeline?.quorum_pct ?? 66
   const passing = pct >= quorum
@@ -38,7 +40,7 @@ function ConsensusGauge({ pipeline }) {
 
   return (
     <div className="flex shrink-0 flex-col items-center justify-center gap-1 border-l border-line px-2 py-2">
-      <span className="panel-title self-start">Consensus</span>
+      <span className="panel-title self-start">{live ? 'Bots reporting' : 'Consensus'}</span>
       <svg
         width={W}
         height={H}
@@ -71,7 +73,9 @@ function ConsensusGauge({ pipeline }) {
         </span>
       </div>
       <span className="num text-[10px]" style={{ color: INK_3 }}>
-        {pipeline?.votes_for ?? 0} for · {pipeline?.votes_against ?? 0} against
+        {live
+          ? `${pipeline?.votes_for ?? 0} of ${(pipeline?.votes_for ?? 0) + (pipeline?.votes_against ?? 0)} in the last 15 min`
+          : `${pipeline?.votes_for ?? 0} for · ${pipeline?.votes_against ?? 0} against`}
       </span>
     </div>
   )
@@ -109,7 +113,7 @@ function Stage({ stage, bots, index }) {
                   {id}
                 </span>
                 <span className="num hidden shrink-0 @xl:inline" style={{ color: INK_3 }}>
-                  {bot ? fmtMs(bot.last_ping_ms) : '—'}
+                  {bot?.last_ping_ms ? fmtMs(bot.last_ping_ms) : ''}
                 </span>
               </div>
               <Meter value={bot?.load ?? 0} color={status.color} height={2} label={`${id} load`} />
@@ -121,8 +125,8 @@ function Stage({ stage, bots, index }) {
       <dl className="mt-auto flex flex-col gap-0.5 text-[10px]">
         {[
           ['in-flight', String(stage.inflight)],
-          ['latency', fmtMs(stage.latency_ms)],
-          ['rate', fmtRate(stage.throughput)],
+          ['latency', stage.latency_ms ? fmtMs(stage.latency_ms) : '—'],
+          ['rate', stage.throughput ? fmtRate(stage.throughput) : '—'],
         ].map(([label, value]) => (
           <div key={label} className="flex min-w-0 items-baseline justify-between gap-2">
             <dt className="truncate" style={{ color: INK_3 }}>
@@ -196,7 +200,7 @@ export function PipelineGraph({ swarm, simulated }) {
             </div>
           )}
         </div>
-        <ConsensusGauge pipeline={pipeline} />
+        <ConsensusGauge pipeline={pipeline} live={!simulated} />
       </div>
     </Panel>
   )

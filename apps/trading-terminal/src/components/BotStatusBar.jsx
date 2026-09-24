@@ -5,9 +5,18 @@ import { useTicker } from '../hooks/useTicker.js'
 
 function pingTone(ms, status) {
   if (status === 'offline') return STATUS.critical
+  if (status === 'idle' || !ms) return INK_3
   if (ms >= 30) return STATUS.critical
   if (ms >= 20) return STATUS.warning
   return STATUS.good
+}
+
+function fmtAgo(ms) {
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s}s ago`
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
 }
 
 function Tile({ bot, now }) {
@@ -45,21 +54,22 @@ function Tile({ bot, now }) {
       <Meter value={bot.load} color={meta.color} label={`${bot.id} load`} />
 
       <div className="flex items-baseline justify-between gap-1 text-[10px]">
+        {/* Hosted bots do not measure latency or rate; show nothing rather than a fake zero. */}
         <span className="num" style={{ color: tone }}>
-          {fmtMs(bot.last_ping_ms)}
+          {bot.last_ping_ms ? fmtMs(bot.last_ping_ms) : '—'}
         </span>
         <span className="num" style={{ color: INK_3 }}>
-          {fmtRate(bot.throughput)}
+          {bot.throughput ? fmtRate(bot.throughput) : ''}
         </span>
         <span className="num" style={{ color: bot.queue_depth > 14 ? STATUS.warning : INK_3 }}>
-          q{bot.queue_depth}
+          {bot.queue_depth ? `q${bot.queue_depth}` : ''}
         </span>
       </div>
 
       <div className="flex items-baseline justify-between gap-1 text-[9.5px]" style={{ color: INK_3 }}>
-        <span className="num">up {fmtDuration(bot.uptime_s)}</span>
-        <span className="num" title="Time since the last heartbeat">
-          {stale > 4000 ? `${Math.round(stale / 1000)}s ago` : 'now'}
+        <span className="num">{bot.uptime_s ? `up ${fmtDuration(bot.uptime_s)}` : bot.last_seen ? 'last seen' : 'never reported'}</span>
+        <span className="num" title="Time since this bot last reported">
+          {!bot.last_seen ? '—' : stale < 4000 ? 'now' : fmtAgo(stale)}
         </span>
       </div>
     </li>

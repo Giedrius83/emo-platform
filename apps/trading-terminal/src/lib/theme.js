@@ -31,6 +31,7 @@ export const NODE_STATUS = {
   online: { color: STATUS.good, glyph: '●', label: 'ONLINE' },
   degraded: { color: STATUS.warning, glyph: '◐', label: 'DEGRADED' },
   offline: { color: STATUS.critical, glyph: '○', label: 'OFFLINE' },
+  idle: { color: INK_3, glyph: '○', label: 'IDLE' },
 }
 
 export const LOG_LEVEL = {

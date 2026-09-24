@@ -11,7 +11,7 @@ import time
 from enum import Enum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
 
 def now_ms() -> int:
@@ -40,6 +40,7 @@ class NodeStatus(str, Enum):
     ONLINE = "online"
     DEGRADED = "degraded"
     OFFLINE = "offline"
+    IDLE = "idle"  # known bot that has not reported recently; not a fault
 
 
 class ActivityLevel(str, Enum):
@@ -246,29 +247,32 @@ class Frame(BaseModel):
 
 # --- inbound: what an external Grok bot publishes to the hub -----------------
 
+# Bots write their names however they like ("Scout", "scout "); match on SCOUT.
+BotName = Annotated[str, BeforeValidator(lambda v: str(v).strip().upper())]
+
 
 class BotHeartbeat(BaseModel):
     kind: Literal["heartbeat"] = "heartbeat"
-    bot_id: str
+    bot_id: BotName
     status: NodeStatus = NodeStatus.ONLINE
-    ping_ms: Annotated[float, Field(ge=0)] = 0.0
+    ping_ms: Annotated[float, Field(ge=0)] | None = None
     task: str = ""
-    load: Annotated[float, Field(ge=0, le=1)] = 0.0
-    throughput: float = 0.0
-    queue_depth: int = 0
+    load: Annotated[float, Field(ge=0, le=1)] | None = None
+    throughput: float | None = None
+    queue_depth: int | None = None
 
 
 class BotHandoff(BaseModel):
     kind: Literal["handoff"] = "handoff"
-    source: str
-    target: str
-    latency_ms: Annotated[float, Field(ge=0)]
+    source: BotName
+    target: BotName
+    latency_ms: Annotated[float, Field(ge=0)] = 0.0
     message: str = ""
 
 
 class BotFill(BaseModel):
     kind: Literal["fill"] = "fill"
-    bot_id: str
+    bot_id: BotName
     side: Literal["BUY", "SELL"]
     symbol: str
     size_eth: float
@@ -278,7 +282,7 @@ class BotFill(BaseModel):
 
 class BotSignal(BaseModel):
     kind: Literal["signal"] = "signal"
-    bot_id: str
+    bot_id: BotName
     message: str
     level: ActivityLevel = ActivityLevel.INFO
     confidence: float = 0.0
