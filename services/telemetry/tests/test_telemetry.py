@@ -123,7 +123,8 @@ def test_network_status_follows_the_worst_node(state: TerminalState) -> None:
 
 def test_snapshot_carries_every_panel(client: TestClient) -> None:
     payload = client.get("/api/snapshot").json()["payload"]
-    assert set(payload) == {"session", "wallet", "history", "swarm", "tails", "activity"}
+    assert set(payload) == {"session", "wallet", "history", "swarm", "tails", "activity", "portfolio"}
+    assert payload["portfolio"] is None  # no broker keys in tests: simulated
     assert len(payload["swarm"]["bots"]) == 8
     assert len(payload["swarm"]["pipeline"]["stages"]) == 3
 

@@ -37,12 +37,40 @@ else
   git clone "$REPO_URL" "$APP_DIR"
 fi
 
-# 3. Build and start ------------------------------------------------------------
+# 3. eToro keys -----------------------------------------------------------------
+# Stored in $APP_DIR/.env (git-ignored, readable only by you). Asked once; delete
+# the file and re-run to change them. Skip them and the account is simulated.
+ENV_FILE="$APP_DIR/.env"
+if ! grep -q '^ETORO_USER_KEY=.' "$ENV_FILE" 2>/dev/null; then
+  if [ -r /dev/tty ]; then
+    say "eToro API keys (read-only access is enough; press Enter to skip)"
+    read -r -p "  x-api-key  (application key): " ETORO_API_KEY < /dev/tty || true
+    read -r -s -p "  x-user-key (user key, hidden): " ETORO_USER_KEY < /dev/tty || true
+    echo
+    read -r -p "  account [real/demo, default real]: " ETORO_ACCOUNT < /dev/tty || true
+    if [ -n "${ETORO_API_KEY:-}" ] && [ -n "${ETORO_USER_KEY:-}" ]; then
+      umask 077
+      {
+        echo "ETORO_API_KEY=$ETORO_API_KEY"
+        echo "ETORO_USER_KEY=$ETORO_USER_KEY"
+        echo "ETORO_ACCOUNT=${ETORO_ACCOUNT:-real}"
+      } > "$ENV_FILE"
+      chmod 600 "$ENV_FILE"
+      echo "  saved to $ENV_FILE"
+    else
+      echo "  skipped: the dashboard will show SIMULATED account numbers"
+    fi
+  else
+    echo "No terminal to ask for eToro keys; running with simulated account numbers." >&2
+  fi
+fi
+
+# 4. Build and start ------------------------------------------------------------
 say "Building and starting the telemetry service"
 cd "$APP_DIR"
 $DOCKER compose up -d --build
 
-# 4. Health ----------------------------------------------------------------------
+# 5. Health ----------------------------------------------------------------------
 say "Waiting for http://localhost:8000/health"
 for _ in $(seq 1 45); do
   if curl -fsS http://localhost:8000/health; then echo; break; fi
@@ -54,7 +82,7 @@ curl -fsS http://localhost:8000/health >/dev/null || {
   exit 1
 }
 
-# 5. Tunnel ----------------------------------------------------------------------
+# 6. Tunnel ----------------------------------------------------------------------
 case "$(uname -m)" in
   aarch64|arm64) ARCH=arm64 ;;
   x86_64|amd64)  ARCH=amd64 ;;
@@ -73,7 +101,7 @@ pkill -f "cloudflared tunnel --url" 2>/dev/null || true
 : > cloudflared.log
 nohup ./cloudflared tunnel --no-autoupdate --url http://localhost:8000 > cloudflared.log 2>&1 &
 
-# 6. URL -------------------------------------------------------------------------
+# 7. URL -------------------------------------------------------------------------
 URL=""
 for _ in $(seq 1 45); do
   # Skip api.trycloudflare.com: cloudflared names it in errors when a request retries.
@@ -89,9 +117,26 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 
+# Plain %-formatting: Oracle Linux 9 ships Python 3.9, which rejects nested f-string quotes.
+STATUS_PY=$(cat <<'PY'
+import json, sys
+e = json.load(sys.stdin).get("etoro")
+if not e:
+    print("not configured (account numbers are SIMULATED)")
+elif e.get("connected"):
+    print("connected to %s account: $%s, %s open, %s closed trades"
+          % (e["account"], e["equity"], e["open_positions"], e["closed_trades"]))
+else:
+    print("NOT connected: %s" % (e.get("last_error") or "waiting for first poll"))
+PY
+)
+sleep 5  # give the first eToro poll a moment
+ETORO_STATUS=$(curl -fsS http://localhost:8000/health | python3 -c "$STATUS_PY" 2>/dev/null || echo "unknown")
+
 cat <<EOF
 
 ==================================================================
+ eToro:        $ETORO_STATUS
  Tunnel URL:   $URL
  Health:       $(curl -fsS "$URL/health" 2>/dev/null || echo "not routing yet, retry in a minute")
  Socket:       ${URL/https:/wss:}/ws/telemetry

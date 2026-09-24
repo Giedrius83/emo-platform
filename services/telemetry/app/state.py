@@ -20,10 +20,13 @@ from .models import (
     ActivityLevel,
     BalancePoint,
     BotNode,
+    ClosedTrade,
+    DataSource,
     HandoffEdge,
     NodeStatus,
     Pipeline,
     PipelineStage,
+    Portfolio,
     SessionInfo,
     Snapshot,
     SwarmState,
@@ -82,6 +85,10 @@ HISTORY_SPAN_S = 600
 HISTORY_STEP_S = 0.5
 HISTORY_LIMIT = int(HISTORY_SPAN_S / HISTORY_STEP_S) + 40
 ACTIVITY_LIMIT = 300
+# With a broker feed the chart spans weeks of closed trades plus one live
+# sample a minute, so it needs more room than the 10-minute simulated window.
+BROKER_HISTORY_LIMIT = 3000
+LIVE_SAMPLE_MS = 60_000
 TAIL_THRESHOLD = -2.5  # percent
 
 
@@ -118,7 +125,13 @@ class TerminalState:
     history: deque[BalancePoint] = field(default_factory=lambda: deque(maxlen=HISTORY_LIMIT))
     activity: deque[ActivityEvent] = field(default_factory=lambda: deque(maxlen=ACTIVITY_LIMIT))
 
+    source: DataSource = DataSource.SIMULATED
+    portfolio: Portfolio | None = None
+    swarm_live: bool = False
+    source_error: str | None = None
+
     _seq: itertools.count = field(default_factory=lambda: itertools.count(1))
+    _last_live_t: int = 0
 
     def __post_init__(self) -> None:
         if not self.bots:
@@ -245,6 +258,32 @@ class TerminalState:
         return round(self.balance_eth * self.eth_usd, 2)
 
     def wallet(self) -> Wallet:
+        if self.portfolio is None and self.source is not DataSource.SIMULATED:
+            # Broker mode before the first good poll: report nothing rather
+            # than let simulated money appear under a "real account" label.
+            return Wallet(
+                balance_eth=0.0, balance_usd=0.0, eth_usd=0.0, pnl_usd=0.0, pnl_pct=0.0,
+                realized_usd=0.0, unrealized_usd=0.0, open_positions=0, fills=0, currency="USD",
+            )
+        if self.portfolio is not None:
+            p = self.portfolio
+            total = round(p.realized_pnl + p.unrealized_pnl, 2)
+            base = round(p.equity - total, 2)
+            return Wallet(
+                balance_eth=0.0,
+                balance_usd=p.equity,
+                eth_usd=0.0,
+                pnl_usd=total,
+                pnl_pct=round(total / base * 100, 2) if base > 0 else 0.0,
+                realized_usd=p.realized_pnl,
+                unrealized_usd=p.unrealized_pnl,
+                open_positions=len(p.positions),
+                fills=p.trades_count,
+                exposure_usd=round(p.invested + p.unrealized_pnl, 2),
+                start_equity_usd=base,
+                currency=p.currency,
+                cash_usd=p.cash,
+            )
         return Wallet(
             balance_eth=round(self.balance_eth, 4),
             balance_usd=round(self.balance_eth * self.eth_usd, 2),
@@ -261,6 +300,9 @@ class TerminalState:
 
     def session_info(self) -> SessionInfo:
         self.session.bots_connected = self.online_count()
+        self.session.source = self.source
+        self.session.swarm_live = self.swarm_live
+        self.session.source_error = self.source_error
         degraded = sum(1 for b in self.bots.values() if b.status is NodeStatus.DEGRADED)
         offline = sum(1 for b in self.bots.values() if b.status is NodeStatus.OFFLINE)
         if offline:
@@ -287,9 +329,14 @@ class TerminalState:
             swarm=self.swarm(),
             tails=self.tails,
             activity=list(self.activity),
+            portfolio=self.portfolio,
         )
 
     def tick(self) -> Tick:
+        if self.portfolio is not None:
+            # Broker mode: the chart is driven by portfolio polls, not this clock.
+            last = self.history[-1] if self.history else BalancePoint(t=now_ms(), balance=0.0, pnl=0.0)
+            return Tick(session=self.session_info(), wallet=self.wallet(), point=last)
         point = BalancePoint(
             t=now_ms(),
             balance=round(self.balance_eth, 6),
@@ -322,6 +369,55 @@ class TerminalState:
         )
         self.activity.append(event)
         return event
+
+    # -- broker feed -----------------------------------------------------------
+
+    def use_broker(self, source: DataSource) -> None:
+        """Switch from simulated account numbers to a real broker feed."""
+        self.source = source
+        self.history = deque(maxlen=BROKER_HISTORY_LIMIT)
+        # Simulated trades must never sit in the log next to real ones.
+        self.activity.clear()
+
+    def apply_portfolio(
+        self, portfolio: Portfolio, trades: list[ClosedTrade], *, rebuild: bool
+    ) -> tuple[BalancePoint, bool]:
+        """Record a broker poll.
+
+        Returns the chart point it produced, and True when that point replaced
+        the previous tip rather than being appended, so clients can mirror it.
+        """
+        self.portfolio = portfolio
+        total = round(portfolio.realized_pnl + portfolio.unrealized_pnl, 2)
+        now = portfolio.updated_at or now_ms()
+        if rebuild:
+            self._rebuild_history(portfolio, trades, total, now)
+        live = BalancePoint(t=now, balance=portfolio.equity, pnl=total)
+        if self.history and self._last_live_t and now - self._last_live_t < LIVE_SAMPLE_MS:
+            self.history[-1] = live  # keep the live tip current without flooding
+            return live, True
+        self.history.append(live)
+        self._last_live_t = now
+        return live, False
+
+    def _rebuild_history(self, portfolio: Portfolio, trades: list[ClosedTrade], total: float, now: int) -> None:
+        """Reconstruct the PnL curve from closed trades.
+
+        Equity at each close is back-calculated from today's equity, which is
+        exact as long as nothing was deposited or withdrawn inside the window.
+        """
+        self.history.clear()
+        self._last_live_t = 0
+        start_equity = portfolio.equity - total
+        window = sorted((t for t in trades if t.closed_at >= portfolio.realized_since), key=lambda t: t.closed_at)
+        first = min([t.opened_at for t in window] + [p.opened_at for p in portfolio.positions] + [now - 3_600_000])
+        self.history.append(BalancePoint(t=first, balance=round(start_equity, 2), pnl=0.0))
+        cumulative = 0.0
+        for trade in window:
+            cumulative += trade.net_profit
+            self.history.append(
+                BalancePoint(t=trade.closed_at, balance=round(start_equity + cumulative, 2), pnl=round(cumulative, 2))
+            )
 
     def rebuild_tails(self, *, vol: float, skew: float) -> TailDistribution:
         """Recompute the three horizon densities as a skewed-normal mixture.

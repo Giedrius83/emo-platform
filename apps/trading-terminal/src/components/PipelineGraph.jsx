@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import { Meter, Panel, StatusDot } from './Panel.jsx'
+import { Meter, Panel, SimulatedBadge, StatusDot } from './Panel.jsx'
 import { INK_2, INK_3, NODE_STATUS, SERIES, STATUS, SUNKEN } from '../lib/theme.js'
 import { fmtMs, fmtRate } from '../lib/format.js'
 
@@ -161,7 +161,7 @@ function Connector() {
 }
 
 /** Signal → Strategy → Execution, with the swarm's vote on the resulting order. */
-export function PipelineGraph({ swarm }) {
+export function PipelineGraph({ swarm, simulated }) {
   const pipeline = swarm?.pipeline
   const bots = new Map((swarm?.bots ?? []).map((b) => [b.id, b]))
   const stages = pipeline?.stages ?? []
@@ -169,6 +169,7 @@ export function PipelineGraph({ swarm }) {
   return (
     <Panel
       title="Relationship graph"
+      badge={<SimulatedBadge show={simulated} />}
       subtitle="signal → strategy → execution"
       right={
         <span className="chip num" style={{ color: INK_3 }}>

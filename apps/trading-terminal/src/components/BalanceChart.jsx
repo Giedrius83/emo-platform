@@ -27,6 +27,18 @@ const METRICS = {
   },
 }
 
+/** With a broker feed the second view is account value in dollars, not ETH. */
+const EQUITY = {
+  key: 'balance',
+  label: 'Account (USD)',
+  axis: (v) => fmtUsdCompact(v),
+  readout: (v) => fmtUsd(v),
+  zeroRule: false,
+}
+
+const DAY = 86_400_000
+const fmtDay = (ms) => new Date(ms).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+
 function niceTicks(lo, hi, count) {
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo === hi) return [lo]
   const raw = (hi - lo) / count
@@ -42,7 +54,9 @@ export function BalanceChart({ history, wallet }) {
   const [ref, { width, height }] = useElementSize()
   const [metric, setMetric] = useState('pnl')
   const [hover, setHover] = useState(null)
-  const spec = METRICS[metric]
+  const broker = wallet?.currency && wallet.currency !== 'ETH'
+  const views = broker ? { pnl: METRICS.pnl, balance: EQUITY } : METRICS
+  const spec = views[metric]
 
   const geom = useMemo(() => {
     if (!history?.length || width < 80 || height < 80) return null
@@ -93,7 +107,8 @@ export function BalanceChart({ history, wallet }) {
   // screen - not the whole session, which the metrics bar already reports.
   const sessionDelta = first && last ? value - first[spec.key] : 0
   const windowMinutes = first && last ? Math.round((last.t - first.t) / 60000) : 0
-  const windowLabel = windowMinutes > 0 ? `${windowMinutes}m` : 'window'
+  const windowLabel =
+    windowMinutes >= 2880 ? `${Math.round(windowMinutes / 1440)}d` : windowMinutes > 0 ? `${windowMinutes}m` : 'window'
 
   function onMove(event) {
     if (!geom || !history?.length) return
@@ -108,10 +123,10 @@ export function BalanceChart({ history, wallet }) {
   return (
     <Panel
       title="Balance history"
-      subtitle={`${history?.length ?? 0} pts · 500ms`}
+      subtitle={broker ? 'eToro · each closed trade, then live' : `${history?.length ?? 0} pts · 500ms`}
       right={
         <div className="flex items-center gap-1" role="group" aria-label="Chart metric">
-          {Object.values(METRICS).map((m) => (
+          {Object.values(views).map((m) => (
             <button
               key={m.key}
               type="button"
@@ -172,7 +187,7 @@ export function BalanceChart({ history, wallet }) {
                 fill={INK_3}
                 className="num"
               >
-                {fmtHHMM(t)}
+                {geom.t1 - geom.t0 > 2 * DAY ? fmtDay(t) : fmtHHMM(t)}
               </text>
             ))}
 
@@ -231,12 +246,14 @@ export function BalanceChart({ history, wallet }) {
             top: M.top + 4,
           }}
         >
-          <div className="num text-[10px] text-ink-3">{fmtTime(hover.t)}</div>
+          <div className="num text-[10px] text-ink-3">
+            {broker ? new Date(hover.t).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : fmtTime(hover.t)}
+          </div>
           <div className="num text-sm font-semibold" style={{ color: metric === 'pnl' ? pnlColor(hover.pnl) : SERIES[0] }}>
             {spec.readout(hover[spec.key])}
           </div>
           <div className="num text-[10px] text-ink-3">
-            {metric === 'pnl' ? `${fmtEth(hover.balance)} ETH` : fmtSignedUsd(hover.pnl)}
+            {metric === 'pnl' ? (broker ? `account ${fmtUsd(hover.balance)}` : `${fmtEth(hover.balance)} ETH`) : fmtSignedUsd(hover.pnl)}
           </div>
         </div>
       ) : null}
@@ -245,11 +262,13 @@ export function BalanceChart({ history, wallet }) {
         <span className="num" style={{ color: INK_2 }}>
           {windowLabel} Δ{' '}
           <span style={{ color: metric === 'pnl' ? pnlColor(sessionDelta) : INK_2 }}>
-            {metric === 'pnl' ? fmtSignedUsd(sessionDelta) : `${sessionDelta >= 0 ? '+' : ''}${sessionDelta.toFixed(4)} ETH`}
+            {metric === 'pnl' || broker
+              ? fmtSignedUsd(sessionDelta)
+              : `${sessionDelta >= 0 ? '+' : ''}${sessionDelta.toFixed(4)} ETH`}
           </span>
         </span>
         <span className="num text-ink-3">
-          exposure {fmtUsd(wallet?.exposure_usd)} · start equity {fmtUsd(wallet?.start_equity_usd)} ·{' '}
+          {broker ? 'in trades' : 'exposure'} {fmtUsd(wallet?.exposure_usd)} · start {fmtUsd(wallet?.start_equity_usd)} ·{' '}
           <span style={{ color: (wallet?.pnl_pct ?? 0) >= 0 ? STATUS.good : STATUS.critical }}>
             {fmtSignedPct(wallet?.pnl_pct)}
           </span>

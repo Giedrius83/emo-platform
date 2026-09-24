@@ -22,6 +22,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import TypeAdapter, ValidationError
 
+from .etoro import DEFAULT_BASE, EtoroClient, EtoroFeed
 from .hub import Subscriber, TelemetryHub
 from .ingest import apply_event
 from .models import FrameType, IngestBatch, IngestEvent
@@ -36,6 +37,33 @@ hub = TelemetryHub()
 _event_adapter: TypeAdapter[IngestEvent] = TypeAdapter(IngestEvent)
 
 
+def _build_feed() -> EtoroFeed | None:
+    """Use the real eToro account when keys are configured, else simulate."""
+    api_key = os.environ.get("ETORO_API_KEY", "").strip()
+    user_key = os.environ.get("ETORO_USER_KEY", "").strip()
+    if not api_key or not user_key:
+        log.info("ETORO_API_KEY / ETORO_USER_KEY not set: account numbers are SIMULATED")
+        return None
+    account = os.environ.get("ETORO_ACCOUNT", "real").strip().lower()
+    if account not in {"real", "demo"}:
+        raise RuntimeError(f"ETORO_ACCOUNT must be 'real' or 'demo', got {account!r}")
+    client = EtoroClient(api_key, user_key, base_url=os.environ.get("ETORO_API_BASE", DEFAULT_BASE))
+    log.info("reading the eToro %s account (read-only)", account)
+    return EtoroFeed(
+        client=client,
+        account=account,
+        make_event=hub.state.log,
+        publish=hub.publish_portfolio,
+        poll_s=float(os.environ.get("ETORO_POLL_SECONDS", "10")),
+        history_days=int(os.environ.get("ETORO_HISTORY_DAYS", "90")),
+    )
+
+
+_feed = _build_feed()
+if _feed is not None:
+    hub.attach_feed(_feed)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await hub.start()
@@ -43,6 +71,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await hub.stop()
+        if hub.feed is not None:
+            await hub.feed.client.aclose()
 
 
 app = FastAPI(
@@ -71,6 +101,23 @@ async def healthz() -> dict[str, object]:
         "bots_online": hub.state.online_count(),
         "simulated": not hub.simulator.dormant,
         "session": hub.state.session.id,
+        "source": hub.state.source.value,
+        "etoro": _etoro_status(),
+    }
+
+
+def _etoro_status() -> dict[str, object] | None:
+    feed = hub.feed
+    if feed is None:
+        return None
+    portfolio = feed.portfolio
+    return {
+        "account": feed.account,
+        "connected": portfolio is not None and feed.last_error is None,
+        "last_error": feed.last_error,
+        "equity": portfolio.equity if portfolio else None,
+        "open_positions": len(portfolio.positions) if portfolio else None,
+        "closed_trades": portfolio.trades_count if portfolio else None,
     }
 
 

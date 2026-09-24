@@ -10,9 +10,14 @@ services:
     # port is never exposed on the VPS's public interface.
     ports:
       - "127.0.0.1:8000:8000"
+    # Values come from the .env file next to this one (never committed).
+    # With no eToro keys the account numbers are simulated and labelled so.
     environment:
       TELEMETRY_CORS_ORIGINS: ${TELEMETRY_CORS_ORIGINS:-*}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ETORO_API_KEY: ${ETORO_API_KEY:-}
+      ETORO_USER_KEY: ${ETORO_USER_KEY:-}
+      ETORO_ACCOUNT: ${ETORO_ACCOUNT:-real}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 15s

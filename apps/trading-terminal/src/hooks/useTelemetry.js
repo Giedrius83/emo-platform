@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 
-const HISTORY_LIMIT = 1240
+// Simulated mode keeps ~10 minutes of 500ms ticks; broker mode keeps weeks of
+// closed trades plus one live sample a minute. Both fit in this.
+const HISTORY_LIMIT = 3000
 const ACTIVITY_LIMIT = 300
 const MAX_BACKOFF_MS = 15_000
 
@@ -24,6 +26,8 @@ const initialState = {
   swarm: null,
   tails: null,
   activity: [],
+  /** Real broker account, or null while the account numbers are simulated. */
+  portfolio: null,
   lastSeq: 0,
   dropped: 0,
   error: null,
@@ -58,14 +62,29 @@ function reducer(state, action) {
             swarm: p.swarm,
             tails: p.tails,
             activity: p.activity.slice(-ACTIVITY_LIMIT),
+            portfolio: p.portfolio ?? null,
           }
+        case 'portfolio': {
+          // A rebuilt curve replaces the chart; otherwise the live tip moves.
+          let history
+          if (p.history) {
+            history = p.history.slice(-HISTORY_LIMIT)
+          } else {
+            history = [...state.history]
+            // The server says whether it moved the live tip or added a sample.
+            if (p.replace && history.length) history[history.length - 1] = p.point
+            else history.push(p.point)
+            if (history.length > HISTORY_LIMIT) history.splice(0, history.length - HISTORY_LIMIT)
+          }
+          return { ...base, portfolio: p.portfolio, wallet: p.wallet, session: p.session, history }
+        }
         case 'tick': {
           const history = [...state.history, p.point]
           if (history.length > HISTORY_LIMIT) history.splice(0, history.length - HISTORY_LIMIT)
           return { ...base, session: p.session, wallet: p.wallet, history }
         }
         case 'swarm':
-          return { ...base, swarm: p }
+          return { ...base, swarm: p, session: p.session ?? state.session }
         case 'tails':
           return { ...base, tails: p }
         case 'activity': {

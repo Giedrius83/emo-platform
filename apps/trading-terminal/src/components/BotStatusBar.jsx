@@ -67,7 +67,7 @@ function Tile({ bot, now }) {
 }
 
 /** The eight sub-bots, always in roster order so a tile never moves under the cursor. */
-export function BotStatusBar({ swarm }) {
+export function BotStatusBar({ swarm, simulated }) {
   const now = useTicker(1000)
   const bots = swarm?.bots ?? []
 
@@ -80,7 +80,11 @@ export function BotStatusBar({ swarm }) {
   }
 
   return (
-    <ul className="grid shrink-0 grid-cols-2 gap-1.5 sm:grid-cols-4 xl:grid-cols-8">
+    <ul
+      className={`grid shrink-0 grid-cols-2 gap-1.5 sm:grid-cols-4 xl:grid-cols-8 ${simulated ? 'opacity-70' : ''}`}
+      aria-label={simulated ? 'Sub-bots (simulated: bots are not reporting yet)' : 'Sub-bots'}
+      title={simulated ? 'Simulated: your bots are not reporting yet.' : undefined}
+    >
       {bots.map((bot) => (
         <Tile key={bot.id} bot={bot} now={now} />
       ))}
