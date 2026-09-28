@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:deploy": "vite build --outDir ../../deploy/web --emptyOutDir"
   },
   "dependencies": {
     "react": "^19.2.0",
