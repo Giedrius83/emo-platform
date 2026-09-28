@@ -1,62 +1,55 @@
 # Connecting your Grok Bots to the dashboard
 
-Your bots already run on Grok Bot's cloud computer, which has a terminal and
-internet access. Each bot reports what it does with one `curl` command. The
-dashboard address and a private token live in one shared file, so when the
-address changes you update one file instead of every bot.
+Your bots run on Grok Bot's shared cloud computer, which has a terminal and
+internet access. They report to the dashboard through one small script,
+`~/report`, that lives on that computer.
 
-`deploy/vps-deploy.sh` prints both messages below with your real address and
-token already filled in. Copy them from there.
+You do not need to edit each bot. At the end of `deploy/vps-deploy.sh`, the
+server prints one message with your real dashboard address and token already
+filled in. Send that message to your **Manager** bot. It:
 
-## 1. One-time setup: send this to your Manager bot
+1. Writes the address and token to `~/dashboard.env`.
+2. Downloads `~/report` from this repository (`deploy/report.sh`) and tests it.
+3. Sends every other bot the reporting rule below and asks them to keep it.
 
-```
-Create the file ~/dashboard.env on our shared computer with exactly these two lines,
-then confirm it exists with: cat ~/dashboard.env
-
-DASHBOARD_URL=https://YOUR-ADDRESS.trycloudflare.com
-DASHBOARD_TOKEN=YOUR-TOKEN
-```
-
-When the address changes, send the Manager the same message with the new address.
-
-## 2. Add this to every bot's instructions
-
-Replace `SCOUT` with that bot's own name: SCOUT, PLANNER, QUANT, GUARD, TRADER,
-MANAGER, ORKA or CODER.
+## The rule every bot follows
 
 ```
-DASHBOARD REPORTING. My name for the dashboard is SCOUT.
-After every meaningful step, report it with ONE terminal command, then continue.
-
-What I am doing now:
-. ~/dashboard.env && curl -s -m 10 -X POST "$DASHBOARD_URL/api/ingest" -H "x-ingest-token: $DASHBOARD_TOKEN" -H "content-type: application/json" -d '{"events":[{"kind":"heartbeat","bot_id":"SCOUT","task":"SHORT DESCRIPTION"}]}'
-
-When I hand work to another bot (target is that bot's name):
-. ~/dashboard.env && curl -s -m 10 -X POST "$DASHBOARD_URL/api/ingest" -H "x-ingest-token: $DASHBOARD_TOKEN" -H "content-type: application/json" -d '{"events":[{"kind":"handoff","source":"SCOUT","target":"QUANT","message":"SHORT DESCRIPTION"}]}'
-
-A decision, result or alert (level is info, success, warn or critical):
-. ~/dashboard.env && curl -s -m 10 -X POST "$DASHBOARD_URL/api/ingest" -H "x-ingest-token: $DASHBOARD_TOKEN" -H "content-type: application/json" -d '{"events":[{"kind":"signal","bot_id":"SCOUT","message":"SHORT DESCRIPTION","level":"info"}]}'
-
-Rules: keep descriptions under 80 characters. Never put keys, passwords or
-tokens in a description. If reporting fails, ignore it and carry on working.
+~/report status  YOURNAME "what you are doing now"
+~/report handoff YOURNAME "what you pass on" TARGETNAME
+~/report done    YOURNAME "a result or decision"
+~/report alert   YOURNAME "a problem"
 ```
+
+Names are SCOUT, PLANNER, QUANT, GUARD, TRADER, MANAGER, ORKA and CODER, in
+any case.
 
 ## What each report does on the dashboard
 
 | Report | Shows up as |
 | --- | --- |
-| `heartbeat` | The bot's tile turns ONLINE and shows the task |
-| `handoff` | A line lights up between the two bots, and the log shows who passed what to whom |
-| `signal` | A log entry, and the bot's tile shows the message |
+| `status` | The bot's tile turns ONLINE and shows the task; the log gets a STATUS line |
+| `handoff` | The link between the two bots lights up; the log shows who passed what to whom |
+| `done` | A green log line, and the bot's tile shows it |
+| `alert` | An amber log line, and the bot's tile shows it |
 
-A bot that has not reported for 15 minutes shows as IDLE. Trades themselves
-come straight from eToro, so the bots do not need to report them.
+A bot silent for 15 minutes shows as IDLE. Trades come straight from eToro,
+so bots do not need to report them.
 
-## Checking it works
+## When the dashboard address changes
 
-The reply to each command tells you what happened:
+The address changes if the server restarts. Log in and run `emo-url` to see
+the new one, then send the Manager just this line with the new address:
 
-- `{"accepted":1,"logged":1}`: it worked.
-- `"unknown_bots":["NEW BOT"]`: the name is not one of the eight; the reply lists the valid names.
-- `missing or wrong ingest token`: the token in `~/dashboard.env` does not match the server.
+```
+printf 'DASHBOARD_URL=%s\nDASHBOARD_TOKEN=%s\n' 'NEW-ADDRESS' 'YOUR-TOKEN' > ~/dashboard.env
+```
+
+The token is in the server's `~/emo-platform/.env` file as `INGEST_TOKEN`.
+
+## Replies from `~/report`
+
+- `{"accepted":1,...}`: it worked.
+- `"unknown_bots":["NEW BOT"]`: not one of the eight names; the reply lists the valid ones.
+- `missing or wrong ingest token`: `~/dashboard.env` has the wrong token.
+- `report: dashboard unreachable`: the address is out of date or the server is down.

@@ -3,12 +3,13 @@ import { Panel, StatusDot } from './Panel.jsx'
 import { INK_2, INK_3, LOG_LEVEL, STATUS, pnlColor } from '../lib/theme.js'
 import { fmtSignedUsd, fmtTime } from '../lib/format.js'
 
-const KINDS = ['ALL', 'OPEN', 'CLOSE', 'ORDER', 'HANDOFF', 'SIGNAL', 'NODE', 'CONSENSUS']
+const KINDS = ['ALL', 'OPEN', 'CLOSE', 'HANDOFF', 'STATUS', 'SIGNAL', 'NODE', 'ORDER', 'CONSENSUS']
 const RENDER_LIMIT = 140
 
 const KIND_TONE = {
   OPEN: '#3987e5',
   CLOSE: INK_2,
+  STATUS: INK_2,
   HANDOFF: INK_2,
   ORDER: STATUS.good,
   SIGNAL: '#3987e5',

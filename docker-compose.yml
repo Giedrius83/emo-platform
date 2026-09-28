@@ -3,7 +3,9 @@
 #   curl http://localhost:8000/health
 services:
   telemetry:
-    build: ./services/telemetry
+    build:
+      context: .
+      dockerfile: services/telemetry/Dockerfile
     container_name: emo-telemetry
     restart: unless-stopped
     # Bound to loopback only: the Cloudflare tunnel reaches it locally, so the

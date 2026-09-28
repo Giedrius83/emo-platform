@@ -237,6 +237,11 @@ class EtoroClient:
             transport=transport,
         )
 
+    def swap_keys(self) -> None:
+        """Exchange the two keys. They are easy to paste the wrong way round."""
+        h = self._http.headers
+        h["x-api-key"], h["x-user-key"] = h["x-user-key"], h["x-api-key"]
+
     async def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         response = await self._http.get(path, params=params, headers={"x-request-id": str(uuid.uuid4())})
         if response.status_code == 429:
@@ -278,6 +283,7 @@ class EtoroFeed:
     _primed: bool = False
     _history_due: bool = True
     _last_history: float = 0.0
+    _tried_swap: bool = False
 
     @property
     def source(self) -> DataSource:
@@ -293,6 +299,11 @@ class EtoroFeed:
             except asyncio.CancelledError:
                 raise
             except EtoroError as exc:
+                if exc.status in (401, 403) and not self._tried_swap and self.portfolio is None:
+                    self._tried_swap = True
+                    self.client.swap_keys()
+                    log.warning("eToro refused the keys; retrying with them swapped")
+                    continue
                 self.last_error = str(exc)
                 log.warning("%s", exc)
                 if self.portfolio is not None:

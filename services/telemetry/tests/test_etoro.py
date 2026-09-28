@@ -329,3 +329,27 @@ def test_broker_mode_shows_no_money_before_the_first_good_poll() -> None:
     assert w.currency == "USD" and w.balance_usd == 0.0 and w.pnl_usd == 0.0
     assert w.balance_eth == 0.0, "simulated ETH must never leak into broker mode"
     assert state.session_info().source_error == "eToro API 401: bad keys"
+
+
+def test_keys_pasted_the_wrong_way_round_are_fixed() -> None:
+    fake = FakeEtoro()
+    published: list = []
+    state = TerminalState()
+    # Real keys, given in the wrong order.
+    client = EtoroClient("user-key", "app-key", transport=httpx.MockTransport(
+        lambda r: fake.handler(r) if (r.headers["x-api-key"], r.headers["x-user-key"]) == ("app-key", "user-key")
+        else httpx.Response(401, text="bad keys")))
+    feed = EtoroFeed(client=client, account="real", make_event=state.log,
+                     publish=lambda p, e, r: published.append(p), poll_s=0.01)
+
+    async def scenario():
+        task = asyncio.create_task(feed.run())
+        for _ in range(100):
+            if published:
+                break
+            await asyncio.sleep(0.02)
+        task.cancel()
+
+    asyncio.run(scenario())
+    assert published and published[0].equity == pytest.approx(40.07, abs=0.001)
+    assert feed.last_error is None
