@@ -1,0 +1,9 @@
+# TLS is automatic (Let's Encrypt) once the DNS A record for {$VOICE_HOST} points here.
+{$VOICE_HOST} {
+	encode gzip
+	reverse_proxy voice-worker:3000
+	log {
+		output stdout
+		format json
+	}
+}
