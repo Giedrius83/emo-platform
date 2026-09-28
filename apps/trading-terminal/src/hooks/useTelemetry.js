@@ -28,6 +28,8 @@ const initialState = {
   activity: [],
   /** Real broker account, or null while the account numbers are simulated. */
   portfolio: null,
+  /** Read-only view of the trading pipeline, or null when no trader is connected. */
+  trading: null,
   lastSeq: 0,
   dropped: 0,
   error: null,
@@ -63,6 +65,7 @@ function reducer(state, action) {
             tails: p.tails,
             activity: p.activity.slice(-ACTIVITY_LIMIT),
             portfolio: p.portfolio ?? null,
+            trading: p.trading ?? null,
           }
         case 'portfolio': {
           // A rebuilt curve replaces the chart; otherwise the live tip moves.
@@ -87,6 +90,8 @@ function reducer(state, action) {
           return { ...base, swarm: p, session: p.session ?? state.session }
         case 'tails':
           return { ...base, tails: p }
+        case 'trading':
+          return { ...base, trading: p }
         case 'activity': {
           const activity = [...state.activity, ...p.events]
           if (activity.length > ACTIVITY_LIMIT) activity.splice(0, activity.length - ACTIVITY_LIMIT)
