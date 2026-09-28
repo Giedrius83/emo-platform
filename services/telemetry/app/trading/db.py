@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -163,8 +164,9 @@ class DayStats:
 
 
 class Store:
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, clock: Callable[[], int] = now_ms) -> None:
         self.path = path
+        self.clock = clock
         self.conn = sqlite3.connect(path, timeout=5.0)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
@@ -194,7 +196,7 @@ class Store:
         self._write(
             "INSERT INTO system_state (key, value, updated_at) VALUES (?, ?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
-            (key, json.dumps(value), now_ms()),
+            (key, json.dumps(value), self.clock()),
         )
 
     # -- journal -----------------------------------------------------------
@@ -210,13 +212,13 @@ class Store:
 
     def risk_event(self, kind: str, severity: str, detail: str = "") -> None:
         self._write("INSERT INTO risk_events (ts, kind, severity, detail) VALUES (?, ?, ?, ?)",
-                    (now_ms(), kind, severity, detail))
+                    (self.clock(), kind, severity, detail))
 
     def health(self, bot: str, status: str, detail: str = "") -> None:
         self._write(
             "INSERT INTO bot_health (bot, ts, status, detail) VALUES (?, ?, ?, ?) "
             "ON CONFLICT(bot) DO UPDATE SET ts = excluded.ts, status = excluded.status, detail = excluded.detail",
-            (bot, now_ms(), status, detail),
+            (bot, self.clock(), status, detail),
         )
 
     def metric(self, signal_id: str | None, stage: str, started_at: int, ended_at: int) -> None:
@@ -252,7 +254,7 @@ class Store:
         or the instrument already has a live position. That is the duplicate
         guard; callers must treat it as a hard stop, never retry around it.
         """
-        ts = now_ms()
+        ts = self.clock()
         with self.conn:
             self.conn.execute(
                 "INSERT INTO positions (position_ref, signal_id, instrument_id, symbol, side, amount, tp_price, "
@@ -271,7 +273,7 @@ class Store:
         self._write(
             "INSERT INTO orders (execution_id, request_id, action, position_ref, instrument_id, state, created_at) "
             "VALUES (?, ?, 'close', ?, ?, 'CREATED', ?)",
-            (execution_id, request_id, position_ref, instrument_id, now_ms()),
+            (execution_id, request_id, position_ref, instrument_id, self.clock()),
         )
 
     def update_order(self, execution_id: str, **values: Any) -> None:

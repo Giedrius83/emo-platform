@@ -25,7 +25,7 @@ from typing import Any
 
 from .broker import STATUS_FILLED, STATUS_PARTIAL, STATUS_REJECTED, AuthError, BrokerError, BrokerUncertain
 from .guard import exit_prices
-from .market import Account, BrokerPosition, Eligibility, Quote, parse_account, parse_rates, parse_ts_ms
+from .market import Account, BrokerPosition, DataError, Eligibility, Quote, parse_account, parse_rates, parse_ts_ms
 from .messages import GuardPayload, Message, ScoutPayload
 from .runtime import Runtime, rid
 
@@ -51,6 +51,7 @@ class Trader:
         self.store = rt.store
         self.broker = rt.broker
         self._last_close_try: dict[str, int] = {}
+        self._missing_since: dict[str, int] = {}  # position_ref -> when eToro stopped listing it
 
     # -- helpers -----------------------------------------------------------------
 
@@ -69,17 +70,40 @@ class Trader:
         payload = await self.rt.call("portfolio", self.broker.portfolio(rid()))
         return parse_account(payload, self.rt.clock())
 
-    async def _find_by_reference(self, reference: str) -> dict[str, Any] | None:
-        """Ask eToro whether an order with this x-request-id exists, for up to the confirm timeout."""
+    def _match_new_position(self, account: Account, instrument_id: int, is_buy: bool, amount: float,
+                            since_ms: int) -> BrokerPosition | None:
+        """A position at eToro that fits an order we sent but did not hear back about."""
+        known = {r["position_id"] for r in self.store.all("SELECT position_id FROM positions WHERE position_id IS NOT NULL")}
+        for bp in account.positions.values():
+            if (bp.instrument_id == instrument_id and bp.is_buy == is_buy and bp.position_id not in known
+                    and (bp.open_ms or 0) >= since_ms - 5_000 and 0.9 * amount <= bp.amount <= 1.01 * amount):
+                return bp
+        return None
+
+    async def locate_open(self, reference: str, instrument_id: int, is_buy: bool, amount: float, since_ms: int,
+                          *, wait: bool = True) -> dict[str, Any] | None:
+        """After an uncertain submit, find out whether eToro has the order. Never resends.
+
+        eToro's lookup by reference does not find v1 market orders (verified on
+        DEMO), so the portfolio is checked for a new position that matches the
+        order: same instrument and side, an amount within fees of the request,
+        opened after the submit, and not known to the trader. Its order id is
+        then confirmed through the order lookup.
+        """
         deadline = self.rt.clock() + self.cfg.order_confirm_timeout_seconds * 1000
         while True:
             try:
                 info = await self.rt.call("lookup", self.broker.lookup_by_reference(rid(), reference))
                 if info:
                     return info
-            except (BrokerUncertain, BrokerError):
+                match = self._match_new_position(await self.account(), instrument_id, is_buy, amount, since_ms)
+                if match is not None and match.order_id:
+                    info = await self.rt.call("order", self.broker.order_info(rid(), match.order_id))
+                    if info:
+                        return info
+            except (BrokerUncertain, BrokerError, DataError):
                 pass
-            if self.rt.clock() >= deadline:
+            if not wait or self.rt.clock() >= deadline:
                 return None
             await self.rt.sleep(POLL_S)
 
@@ -175,9 +199,9 @@ class Trader:
             return self._rejected(sid, execution_id, position_ref, str(exc))
         except BrokerUncertain as exc:
             self.store.update_order(execution_id, state="UNKNOWN", error=str(exc))
-            info = await self._find_by_reference(request_id)
+            info = await self.locate_open(request_id, signal.instrument_id, signal.side == "long", guard.amount, t_submit)
             if info is None:
-                self.store.update_order(execution_id, state="REJECTED", error="uncertain submit; eToro has no such order",
+                self.store.update_order(execution_id, state="REJECTED", error="uncertain submit; no matching order at eToro",
                                         resolved_at=self.rt.clock())
                 self.store.move(position_ref, "CLOSED", close_reason="SYSTEM_FAILURE", closed_at=self.rt.clock())
                 self.store.set_signal_status(sid, "FAILED", "UNCERTAIN_SUBMIT")
@@ -322,13 +346,20 @@ class Trader:
             self.store.risk_event("CLOSE_REJECTED", "ERROR", f"{pos['symbol']} {pos['position_id']}: {exc}")
             return  # next monitor pass re-checks the account before any new attempt
         except BrokerUncertain as exc:
+            # Closing twice is harmless (eToro refuses the second), but only
+            # the account tells us whether the first one went through.
             self.store.update_order(execution_id, state="UNKNOWN", error=str(exc))
-            info = await self._find_by_reference(request_id)
-            if info is None:
-                self.store.update_order(execution_id, state="REJECTED", error="uncertain close; not found",
+            try:
+                account = await self.account()
+            except (BrokerUncertain, BrokerError, DataError):
+                return  # stays UNKNOWN; reconciliation settles it from the account
+            if pos["position_id"] not in account.positions:
+                self.store.update_order(execution_id, state="FILLED", resolved_at=self.rt.clock())
+                await self.finalize_external(pos, account, reason=reason)
+            else:
+                self.store.update_order(execution_id, state="REJECTED", error="uncertain close; position still open",
                                         resolved_at=self.rt.clock())
-                return
-            order_id = int(info.get("orderId") or 0) or None
+            return
         if order_id:
             self.store.update_order(execution_id, order_id=order_id)
             fill = await self._await_close(order_id)
@@ -371,21 +402,27 @@ class Trader:
         if pos["opened_at"]:
             self.store.metric(pos["signal_id"], "HOLD", pos["opened_at"], closed_at)
 
-    async def finalize_external(self, pos: Any, account: Account) -> None:
-        """The position left the account without our close: eToro TP/SL, or a manual close."""
+    async def finalize_external(self, pos: Any, account: Account, reason: str | None = None) -> None:
+        """The position left the account without a confirmed close from us: eToro's
+        TP/SL, a manual close, or our own close whose answer was lost (``reason``)."""
         row = await self._history_row(pos["position_id"])
         now = self.rt.clock()
         if row is None:
-            if now - (pos["opened_at"] or now) < EXTERNAL_CLOSE_GRACE_MS:
-                return  # history lags a little behind the portfolio; check again next pass
+            missing = self._missing_since.setdefault(pos["position_ref"], now)
+            if now - missing < EXTERNAL_CLOSE_GRACE_MS:
+                return  # not in history yet; check again next pass
             quote = await self.quote(pos["instrument_id"])
             exit_px = (quote.bid if pos["side"] == "long" else quote.ask) if quote else pos["entry_price"]
             self.store.risk_event("CLOSE_NOT_IN_HISTORY", "ERROR", f"position {pos['position_id']}")
-            self.finalize(pos, "SYSTEM_FAILURE", exit_px, now)
+            self.finalize(pos, reason or "SYSTEM_FAILURE", exit_px, now)  # P&L is estimated; refine_pnl corrects it
+            self._missing_since.pop(pos["position_ref"], None)
             return
+        self._missing_since.pop(pos["position_ref"], None)
         exit_px = float(row.get("closeRate") or 0.0)
         long = pos["side"] == "long"
-        if (long and exit_px >= pos["tp_price"] * 0.999) or (not long and exit_px <= pos["tp_price"] * 1.001):
+        if reason:
+            pass
+        elif (long and exit_px >= pos["tp_price"] * 0.999) or (not long and exit_px <= pos["tp_price"] * 1.001):
             reason = "TP"
         elif (long and exit_px <= pos["broker_sl_price"] * 1.001) or (not long and exit_px >= pos["broker_sl_price"] * 0.999):
             reason = "SL"

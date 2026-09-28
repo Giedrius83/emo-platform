@@ -58,7 +58,7 @@ class Rig:
             settings["TRADING_REAL_CONFIRM"] = REAL_CONFIRMATION
         settings.update(overrides)
         self.cfg = load_config(settings)
-        self.store = Store(self.cfg.db_path)
+        self.store = Store(self.cfg.db_path, clock=self.clock.now)
         self.manager = self._manager()
 
     def _manager(self) -> Manager:
@@ -414,11 +414,9 @@ def test_authentication_failure_halts_immediately(rig: Rig) -> None:
 def test_submit_timeout_after_acceptance_is_found_by_reference_not_resent(rig: Rig) -> None:
     rig.fake.open_mode = "timeout_after"
     assert run(rig.start_and_scan()) == "EXECUTED"
-    assert len(rig.fake.posts()) == 1
-    lookups = [c for c in rig.fake.calls if "orders:lookup" in c[1]]
-    assert lookups
+    assert len(rig.fake.posts()) == 1  # found in the portfolio and confirmed by order id, never resent
     (pos,) = rig.live()
-    assert pos["position_id"] in rig.fake.positions
+    assert pos["position_id"] in rig.fake.positions and pos["state"] == "MONITORING"
 
 
 def test_submit_timeout_with_no_order_halts_and_never_resends(rig: Rig) -> None:
@@ -457,6 +455,7 @@ def test_restart_recovers_an_order_left_submitted_by_a_crash(rig: Rig) -> None:
     rig.store.create_open(position_ref="p1", execution_id="e1", request_id="req-crash", signal_id="s1", **common)
     rig.store.move("p1", "SUBMITTED")
     rig.store.update_order("e1", state="SUBMITTED")
+    rig.clock.ms += 1_000
     # eToro had accepted it before the crash:
     rig.fake.open_mode = "fill"
     import httpx
@@ -638,3 +637,43 @@ def test_position_of_an_in_flight_order_is_not_mistaken_for_a_foreign_one(rig: R
     rig.manager.rt.inflight.clear()
     run(_refresh_and_reconcile(rig.manager))  # still unexplained once nothing is in flight: halt
     assert rig.manager.rt.emergency_reason == "POSITION_MISMATCH"
+
+
+# --- 16. shapes seen on the live DEMO account during the order round-trip --------------------
+
+
+def test_live_order_shapes_are_understood() -> None:
+    from app.trading.broker import normalize_order
+
+    flat = normalize_order(json.loads((FIX / "etoro_order_v1_demo.json").read_text()))
+    lookup = normalize_order(json.loads((FIX / "etoro_order_lookup_demo.json").read_text()))
+    for info in (flat, lookup):
+        assert info["status"]["id"] == 3 and info["orderId"] == 384481669
+        pe = info["positionExecutions"][0]
+        assert pe["positionId"] == 3605462366 and pe["openingData"]["avgPrice"] == 82900.5
+    assert lookup["positionExecutions"][0]["takeProfitRate"] == 83335.71
+    close = json.loads((FIX / "etoro_close_order_demo.json").read_text())
+    assert [r["rate"] for r in close["positions"] if r.get("rate")] == [82923.5]
+
+
+def test_order_prices_are_sent_at_the_precision_eToro_accepted() -> None:
+    from app.trading.guard import exit_prices
+    from app.trading.trader import round_rate
+
+    tp, _, backstop = exit_prices("long", 83003.7, 0.4, 0.3, 11.0)
+    assert (round_rate(tp), round_rate(backstop)) == (83335.71, 73873.29)  # the exact pair eToro DEMO accepted
+    assert round_rate(0.0986312345) == 0.0986312
+
+
+def test_broker_close_waits_for_history_instead_of_guessing(rig: Rig) -> None:
+    pos = _opened(rig)
+    rig.clock.ms += 600_000  # well after opening: grace must count from the disappearance
+    rig.fake.broker_close(pos["position_id"], pos["tp_price"])
+    late = rig.fake.history.pop()  # eToro has not written it to history yet
+    run(_refresh_and_reconcile(rig.manager))
+    assert rig.store.position(pos["position_ref"])["state"] == "MONITORING"
+    rig.fake.history.append(late)
+    rig.clock.ms += 10_000
+    run(_refresh_and_reconcile(rig.manager))
+    closed = rig.store.position(pos["position_ref"])
+    assert closed["close_reason"] == "TP" and closed["pnl_final"] == 1

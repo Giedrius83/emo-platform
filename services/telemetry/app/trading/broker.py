@@ -8,9 +8,15 @@ route, and the other way round. Nothing can switch it later.
 Write semantics
 ---------------
 Each write carries a fresh ``x-request-id`` that the caller has already
-stored. eToro echoes it as the order's ``referenceId``. When a write times out
-or fails ambiguously the caller must not resend. It calls
-``lookup_by_reference`` first and learns whether the order exists.
+stored. When a write times out or fails ambiguously the caller must not
+resend: it finds out whether the order exists first (see ``Trader``).
+
+Verified on the live DEMO account (2026-09-28), differing from the spec:
+* ``GET /trading/info/*/orders/{id}`` returns a flat shape (``statusID``,
+  ``positions[]``), so fills are confirmed through ``orders:lookup?orderId=``,
+  which returns the documented shape. ``normalize_order`` accepts both.
+* ``orders:lookup?referenceId=<x-request-id>`` answers 404 for orders placed
+  through the v1 market routes, so it cannot prove an order does NOT exist.
 """
 
 from __future__ import annotations
@@ -31,7 +37,6 @@ ROUTES: dict[str, MappingProxyType] = {
         "history": "/api/v1/trading/info/trade/demo/history",
         "open": "/api/v1/trading/execution/demo/market-open-orders/by-amount",
         "close": "/api/v1/trading/execution/demo/market-close-orders/positions/{position_id}",
-        "order": "/api/v1/trading/info/demo/orders/{order_id}",
         "close_order": "/api/v1/trading/info/demo/close-orders/{order_id}",
         "lookup": "/api/v2/trading/info/demo/orders:lookup",
         "eligibility": "/api/v2/trading/info/demo/eligibility",
@@ -41,7 +46,6 @@ ROUTES: dict[str, MappingProxyType] = {
         "history": "/api/v1/trading/info/trade/history",
         "open": "/api/v1/trading/execution/market-open-orders/by-amount",
         "close": "/api/v1/trading/execution/market-close-orders/positions/{position_id}",
-        "order": "/api/v1/trading/info/real/orders/{order_id}",
         "close_order": "/api/v1/trading/info/real/close-orders/{order_id}",
         "lookup": "/api/v2/trading/info/orders:lookup",
         "eligibility": "/api/v2/trading/info/eligibility",
@@ -81,6 +85,20 @@ class AuthError(BrokerError):
 class BrokerUncertain(Exception):
     """No definitive answer (timeout, network, 5xx, 429). A write may or may not
     have happened: look it up by reference, never resend blindly."""
+
+
+def normalize_order(info: dict[str, Any]) -> dict[str, Any]:
+    """Return order info in the documented lookup shape, whichever shape eToro sent."""
+    if "status" in info or "statusID" not in info:
+        return info
+    executions = [
+        {"positionId": p["positionID"], "remainingUnits": p.get("units"),
+         "openingData": {"avgPrice": p.get("rate"), "units": p.get("units"), "executionTime": p.get("occurred")}}
+        for p in info.get("positions") or [] if p.get("positionID") and p.get("rate")
+    ]
+    return {"orderId": info.get("orderID"),
+            "status": {"id": info.get("statusID"), "errorCode": info.get("errorCode")},
+            "positionExecutions": executions}
 
 
 def _clip(text: str) -> str:
@@ -184,7 +202,8 @@ class Broker:
         return await self._send("POST", self._routes["eligibility"], request_id, body=body)
 
     async def order_info(self, request_id: str, order_id: int) -> dict[str, Any] | None:
-        return await self._get(self._routes["order"].format(order_id=order_id), request_id, allow_404=True)
+        info = await self._get(self._routes["lookup"], request_id, {"orderId": order_id}, allow_404=True)
+        return normalize_order(info) if info else None
 
     async def close_order_info(self, request_id: str, order_id: int) -> dict[str, Any] | None:
         return await self._get(self._routes["close_order"].format(order_id=order_id), request_id, allow_404=True)

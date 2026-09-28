@@ -64,6 +64,7 @@ class FakeEtoro:
         self.open_mode = "fill"  # fill | reject | timeout_before | timeout_after | hang
         self.fail_paths: dict[str, Any] = {}  # substring -> "timeout" | status code
         self.drop_protection = False
+        self.reference_lookup = False  # live eToro: referenceId lookup does not find v1 market orders
         self._next_id = 5_000_000
 
     # -- setup helpers -------------------------------------------------------
@@ -183,8 +184,11 @@ class FakeEtoro:
         return httpx.Response(200, json={"currency": "usd", "eligibilities": out, "notFoundInstrumentIds": []})
 
     def _lookup(self, request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("orderId"):
+            info = self.orders.get(int(request.url.params["orderId"]))
+            return httpx.Response(200, json=info) if info else httpx.Response(404, json={"message": "not found"})
         ref = request.url.params.get("referenceId")
-        oid = self.by_ref.get(ref or "")
+        oid = self.by_ref.get(ref or "") if self.reference_lookup else None
         if oid is None:
             return httpx.Response(404, json={"title": "Order not found"})
         info = self.orders.get(oid) or {"orderId": oid, "status": {"id": 3, "name": "Filled"}, "positionExecutions": []}
@@ -193,8 +197,8 @@ class FakeEtoro:
     # -- writes --------------------------------------------------------------
 
     def _position_row(self, pid: int, iid: int, amount: float, rate: float, units: float,
-                      sl: float | None, tp: float | None) -> dict[str, Any]:
-        return {"positionID": pid, "instrumentID": iid, "isBuy": True, "amount": amount, "units": units,
+                      sl: float | None, tp: float | None, order_id: int = 0) -> dict[str, Any]:
+        return {"positionID": pid, "orderID": order_id, "instrumentID": iid, "isBuy": True, "amount": amount, "units": units,
                 "openRate": rate, "stopLossRate": sl or 0.0001, "takeProfitRate": tp or 0,
                 "isNoStopLoss": sl is None, "isNoTakeProfit": tp is None, "leverage": 1,
                 "openDateTime": iso(self.clock.now()), "unrealizedPnL": {"pnL": 0.0}}
@@ -212,7 +216,7 @@ class FakeEtoro:
         units = amount / ask
         sl = None if self.drop_protection else body["StopLossRate"]
         tp = None if self.drop_protection else body["TakeProfitRate"]
-        self.positions[pid] = self._position_row(pid, iid, amount, ask, units, sl, tp)
+        self.positions[pid] = self._position_row(pid, iid, amount * 0.995, ask, units, sl, tp, order_id=oid)
         self.cash -= amount
         self.by_ref[ref] = oid
         self.orders[oid] = {

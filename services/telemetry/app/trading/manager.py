@@ -28,6 +28,7 @@ from .market import (
     parse_candles,
     parse_eligibility,
     parse_rates,
+    parse_ts_ms,
     parse_universe,
 )
 from .messages import Message, ScoutPayload, new_signal_id
@@ -185,43 +186,50 @@ class Manager:
 
     async def _resolve_order(self, order: Any, account: Account) -> None:
         pos = self.store.position(order["position_ref"])
+        now = self.rt.clock()
+        expired = (now - order["created_at"]) / 1000 >= self.cfg.order_confirm_timeout_seconds
+        if order["action"] == "close" or pos is None:
+            # A close is settled by the account: gone means done. The monitor
+            # finalises the position from history on its next pass.
+            if pos is not None and pos["position_id"] not in account.positions:
+                self.store.update_order(order["execution_id"], state="FILLED", resolved_at=now)
+            elif expired:
+                self.store.update_order(order["execution_id"], state="REJECTED", error="close not confirmed", resolved_at=now)
+            return
+        if pos["state"] not in ("CREATED", "SUBMITTED"):
+            self.store.update_order(order["execution_id"], state="FILLED", resolved_at=now)
+            return
         try:
-            info = await self.rt.call("lookup", self.broker.lookup_by_reference(rid(), order["request_id"]))
+            if order["order_id"]:
+                info = await self.rt.call("order", self.broker.order_info(rid(), order["order_id"]))
+            else:
+                info = await self.trader.locate_open(order["request_id"], order["instrument_id"], pos["side"] == "long",
+                                                     order["amount"], order["submitted_at"] or order["created_at"],
+                                                     wait=False)
         except (BrokerUncertain, BrokerError):
             return
-        now = self.rt.clock()
-        if info is None:
-            if (now - order["created_at"]) / 1000 < self.cfg.order_confirm_timeout_seconds:
-                return
-            self.store.update_order(order["execution_id"], state="REJECTED", error="not found at eToro", resolved_at=now)
-            if order["action"] == "open" and pos is not None and pos["state"] in ("CREATED", "SUBMITTED"):
-                self.store.move(pos["position_ref"], "CLOSED", close_reason="SYSTEM_FAILURE", closed_at=now)
-            return
-        status = (info.get("status") or {}).get("id")
-        executions = [pe for pe in info.get("positionExecutions") or [] if pe.get("positionId")]
-        if order["action"] == "open" and pos is not None and pos["state"] in ("CREATED", "SUBMITTED"):
-            if executions:
-                pe = executions[0]
-                opening = pe.get("openingData") or {}
-                entry = float(opening.get("avgPrice") or pos["tp_price"] / (1 + pos["tp_pct"] / 100))
-                opened = self.rt.clock()
-                self.store.update_order(order["execution_id"], state="FILLED", order_id=info.get("orderId"), resolved_at=now)
-                if pos["state"] == "CREATED":
-                    self.store.move(pos["position_ref"], "SUBMITTED")
-                self.store.move(pos["position_ref"], "OPEN", position_id=int(pe["positionId"]), entry_price=entry,
-                                units=float(opening.get("units") or pe.get("remainingUnits") or 0.0),
-                                sl_price=entry * (1 - (1 if pos["side"] == "long" else -1) * pos["sl_pct"] / 100),
-                                opened_at=opened, deadline_at=opened + self.cfg.max_hold_seconds * 1000)
-                self.rt.event("POSITION_OPENED", "MANAGER", status="RECONCILED", signal_id=pos["signal_id"],
-                              detail=f"{pos['symbol']} position {pe['positionId']} recovered from eToro")
-            elif status in {4, 7, 8, 10}:
-                self.store.update_order(order["execution_id"], state="REJECTED", order_id=info.get("orderId"), resolved_at=now)
-                self.store.move(pos["position_ref"], "CLOSED", close_reason="BROKER_REJECT", closed_at=now)
-        elif order["action"] == "close" and pos is not None:
-            if pos["position_id"] not in account.positions:
-                self.store.update_order(order["execution_id"], state="FILLED", resolved_at=now)
-            elif status in {4, 7, 8, 10}:
-                self.store.update_order(order["execution_id"], state="REJECTED", resolved_at=now)
+        status = ((info or {}).get("status") or {}).get("id")
+        executions = [pe for pe in (info or {}).get("positionExecutions") or [] if pe.get("positionId")]
+        if executions:
+            pe = executions[0]
+            opening = pe.get("openingData") or {}
+            entry = float(opening.get("avgPrice") or 0.0) or pos["tp_price"] / (1 + pos["tp_pct"] / 100)
+            opened = parse_ts_ms(opening.get("executionTime")) or now
+            self.store.update_order(order["execution_id"], state="FILLED", order_id=info.get("orderId"), resolved_at=now)
+            if pos["state"] == "CREATED":
+                self.store.move(pos["position_ref"], "SUBMITTED")
+            self.store.move(pos["position_ref"], "OPEN", position_id=int(pe["positionId"]), entry_price=entry,
+                            units=float(opening.get("units") or pe.get("remainingUnits") or 0.0),
+                            sl_price=entry * (1 - (1 if pos["side"] == "long" else -1) * pos["sl_pct"] / 100),
+                            opened_at=opened, deadline_at=opened + self.cfg.max_hold_seconds * 1000)
+            self.rt.event("POSITION_OPENED", "MANAGER", status="RECONCILED", signal_id=pos["signal_id"],
+                          detail=f"{pos['symbol']} position {pe['positionId']} recovered from eToro")
+        elif status in {4, 7, 8, 10} or (info is None and expired):
+            error = "rejected by eToro" if info else "no matching order at eToro"
+            self.store.update_order(order["execution_id"], state="REJECTED", order_id=(info or {}).get("orderId"),
+                                    error=error, resolved_at=now)
+            self.store.move(pos["position_ref"], "CLOSED",
+                            close_reason="BROKER_REJECT" if info else "SYSTEM_FAILURE", closed_at=now)
 
     # -- the pipeline --------------------------------------------------------------
 

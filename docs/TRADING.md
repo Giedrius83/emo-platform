@@ -54,8 +54,8 @@
 2. A fresh quote: realtime, not stale, spread within the limit, and entry slippage within `MAX_ENTRY_SLIPPAGE_PERCENT` of Guard's reference price.
 3. Position and order rows are inserted in one transaction. The database **refuses** a second order for the signal and a second live position on the instrument.
 4. The rows are marked `SUBMITTED`, then **one** POST is sent with the stored `x-request-id`.
-5. After a timeout, 5xx or 429 the POST is **never resent**. The trader looks the order up by `referenceId` (eToro's lookup by the submitted `x-request-id`). If eToro has it, the trade proceeds; if not, the trade is marked failed and an **emergency halt** follows.
-6. The fill is confirmed through `orders/{id}`. eToro's copy of the position must then carry TP and SL, or the position is closed at once as `SYSTEM_FAILURE`.
+5. After a timeout, 5xx or 429 the POST is **never resent**. The trader finds out whether eToro has the order. It looks for a position the trader does not know, on the same instrument and side, with an amount within fees of the request, opened after the submit. It then confirms that position's order id. If found, the trade proceeds. If not, the trade is marked failed and an **emergency halt** follows (a late appearance is caught by reconciliation as well).
+6. The fill is confirmed through `orders:lookup?orderId=`. eToro's copy of the position must then carry TP and SL, or the position is closed at once as `SYSTEM_FAILURE`.
 
 ### 3.2 Identifiers
 `signal_id` → `execution_id` (with a unique `request_id` = `x-request-id`) → eToro `order_id` → eToro `position_id`. All four are unique in the database. Every journal line carries the `signal_id`.
@@ -78,6 +78,20 @@ On start, and on every account refresh:
 * each unresolved order is looked up by its reference and resolved (filled → monitored, rejected or not found → closed);
 * each position that vanished from eToro is finalised from trade history (TP, SL or MANUAL, with eToro's net profit);
 * **any eToro position the trader did not open halts entries** (`POSITION_MISMATCH`).
+
+### 3.6 Verified on the eToro DEMO account (2026-09-28)
+One $10 BTC round trip was placed with the trader's exact request bodies, with the owner's approval:
+
+* Open `by-amount` with TP 83335.71 and backstop SL 73873.29 was **accepted as sent**. Filled at 82900.5 (order 384481669, position 3605462366).
+* The portfolio row carried both protections (`isNoStopLoss: false`, `isNoTakeProfit: false`).
+* The close was **accepted**. `close-orders/{id}` reported rate 82923.5, and the trade appeared in history. The cost was about $0.10 of virtual money in fees.
+
+It exposed two differences from the published spec, both handled and covered by tests using the captured payloads:
+
+* `GET /trading/info/demo/orders/{id}` returns a flat shape (`statusID`, `positions[]`), not the documented one. Fills are therefore confirmed through `orders:lookup?orderId=`, which matches the spec, and `normalize_order` accepts both.
+* `orders:lookup?referenceId=<x-request-id>` returns 404 for these orders (their `referenceID` is all zeros). Uncertain submits are therefore resolved from the portfolio (§3.1, step 5).
+
+Also observed: history's `minDate` excludes the given day, so the trader queries two days back.
 
 ## 4. Risk states
 

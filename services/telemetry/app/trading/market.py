@@ -252,6 +252,7 @@ class BrokerPosition:
     take_profit: float | None
     open_ms: int | None
     pnl: float
+    order_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -287,6 +288,7 @@ def parse_account(payload: dict[str, Any], fetched_ms: int) -> Account:
             take_profit=None if row.get("isNoTakeProfit") or not tp else float(tp),
             open_ms=parse_ts_ms(row.get("openDateTime")),
             pnl=float(upnl.get("pnL") or 0.0),
+            order_id=int(row["orderID"]) if row.get("orderID") else None,
         )
     cash = float(client.get("credit") or 0.0)
     invested = sum(p.amount for p in positions.values())
