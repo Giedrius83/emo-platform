@@ -32,6 +32,13 @@ if pgrep -f '/usr/bin/dnf' >/dev/null 2>&1; then
   sudo pkill -9 -f '/usr/bin/dnf' || true
 fi
 
+# Oracle Linux refreshes its package lists in the background (dnf-makecache).
+# On a 500 MB server that alone can freeze the machine, taking the dashboard
+# and SSH down with it. Nothing here needs it, so turn it off.
+if systemctl list-unit-files dnf-makecache.timer >/dev/null 2>&1; then
+  sudo systemctl disable --now dnf-makecache.timer >/dev/null 2>&1 || true
+fi
+
 MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
 SWAP_KB=$(awk '/SwapTotal/ {print $2}' /proc/meminfo)
 if [ "$MEM_KB" -lt 3000000 ] && [ "$SWAP_KB" -lt 1000000 ] && [ ! -e /swapfile ]; then
