@@ -17,11 +17,13 @@ from .etoro import EtoroFeed
 from .models import ActivityEvent, Frame, FrameType, Portfolio
 from .simulator import SwarmSimulator
 from .state import TerminalState
+from .trading_view import TradingView
 
 log = logging.getLogger("telemetry.hub")
 
 TICK_INTERVAL_S = 0.5
 SWARM_INTERVAL_S = 1.5
+TRADING_INTERVAL_S = 2.0
 ACTIVITY_INTERVAL_S = 0.9
 CLIENT_QUEUE_SIZE = 64
 
@@ -58,6 +60,8 @@ class TelemetryHub:
         self.subscribers: set[Subscriber] = set()
         self._tasks: list[asyncio.Task[None]] = []
         self.feed: EtoroFeed | None = None
+        self.trading: TradingView | None = None
+        self.trading_state: dict[str, Any] | None = None
 
     def go_live(self) -> None:
         """A real bot reported: retire the simulated swarm, once."""
@@ -77,6 +81,10 @@ class TelemetryHub:
         self.feed = feed
         self.state.use_broker(feed.source)
 
+    def attach_trading(self, view: TradingView) -> None:
+        """Show the trading pipeline. Read-only: the view cannot write or trade."""
+        self.trading = view
+
     # -- lifecycle -----------------------------------------------------------
 
     async def start(self) -> None:
@@ -85,6 +93,8 @@ class TelemetryHub:
         self._tasks = [
             asyncio.create_task(self._swarm_loop(), name="telemetry-swarm"),
         ]
+        if self.trading is not None:
+            self._tasks.append(asyncio.create_task(self._trading_loop(), name="telemetry-trading"))
         if self.feed is not None:
             self._tasks.append(asyncio.create_task(self.feed.run(), name="telemetry-etoro"))
         else:
@@ -112,7 +122,9 @@ class TelemetryHub:
             subscriber.offer(frame)
 
     def snapshot_frame(self) -> Frame:
-        return self.frame(FrameType.SNAPSHOT, self.state.snapshot().model_dump(mode="json"))
+        snapshot = self.state.snapshot()
+        snapshot.trading = self.trading_state
+        return self.frame(FrameType.SNAPSHOT, snapshot.model_dump(mode="json"))
 
     # -- loops ---------------------------------------------------------------
 
@@ -144,6 +156,25 @@ class TelemetryHub:
             except Exception:
                 log.exception("swarm loop beat failed")
             await asyncio.sleep(SWARM_INTERVAL_S)
+
+    async def _trading_loop(self) -> None:
+        while True:
+            try:
+                self.poll_trading()
+            except Exception:
+                log.exception("trading view beat failed")
+            await asyncio.sleep(TRADING_INTERVAL_S)
+
+    def poll_trading(self) -> None:
+        if self.trading is None:
+            return
+        # SQLite reads are local and short; the file is opened read-only.
+        self.trading_state = self.trading.read()
+        self.broadcast(self.frame(FrameType.TRADING, self.trading_state))
+        events = self.trading.new_activity()
+        if events:
+            self.state.activity.extend(events)
+            self.publish_activity(events)
 
     async def _activity_loop(self) -> None:
         while True:

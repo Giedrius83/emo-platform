@@ -27,6 +27,7 @@ from .etoro import DEFAULT_BASE, EtoroClient, EtoroFeed
 from .hub import Subscriber, TelemetryHub
 from .ingest import apply_event
 from .models import FrameType, IngestBatch, IngestEvent
+from .trading_view import TradingView
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -82,6 +83,13 @@ _feed = _build_feed()
 if _feed is not None:
     hub.attach_feed(_feed)
 
+# The trader is a separate process. The dashboard only reads its database,
+# opened read-only, so nothing here can place, change or close a trade.
+_trading_db = os.environ.get("TRADING_DB_PATH", "").strip()
+if _trading_db:
+    hub.attach_trading(TradingView(_trading_db))
+    log.info("showing the trading pipeline from %s (read-only)", _trading_db)
+
 
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -124,7 +132,15 @@ async def healthz() -> dict[str, object]:
         "bots_live": hub.simulator.live,
         "ingest_protected": bool(INGEST_TOKEN),
         "etoro": _etoro_status(),
+        "trading": _trading_status(),
     }
+
+
+def _trading_status() -> dict[str, object] | None:
+    state = hub.trading_state
+    if hub.trading is None or state is None:
+        return None
+    return {"env": state.get("env"), "mode": state.get("mode"), "open_positions": len(state.get("positions") or [])}
 
 
 def _etoro_status() -> dict[str, object] | None:

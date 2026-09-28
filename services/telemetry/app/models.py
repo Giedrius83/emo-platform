@@ -26,6 +26,7 @@ class FrameType(str, Enum):
     SWARM = "swarm"
     TAILS = "tails"
     PORTFOLIO = "portfolio"
+    TRADING = "trading"
 
 
 class DataSource(str, Enum):
@@ -228,6 +229,7 @@ class Snapshot(BaseModel):
     tails: TailDistribution
     activity: list[ActivityEvent]
     portfolio: Portfolio | None = None
+    trading: dict[str, Any] | None = Field(default=None, description="Read-only view of the trading pipeline.")
 
 
 class Tick(BaseModel):

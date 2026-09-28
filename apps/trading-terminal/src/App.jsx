@@ -1,11 +1,12 @@
 import { ActivityLog } from './components/ActivityLog.jsx'
-import { BalanceChart } from './components/BalanceChart.jsx'
 import { BotStatusBar } from './components/BotStatusBar.jsx'
 import { HandoffGraph } from './components/HandoffGraph.jsx'
 import { MetricsBar } from './components/MetricsBar.jsx'
 import { PipelineGraph } from './components/PipelineGraph.jsx'
 import { PositionsPanel } from './components/PositionsPanel.jsx'
 import { TailRidge } from './components/TailRidge.jsx'
+import { TradingAssets } from './components/TradingAssets.jsx'
+import { TradingStatus } from './components/TradingStatus.jsx'
 import { useTelemetry } from './hooks/useTelemetry.js'
 import { STATUS } from './lib/theme.js'
 
@@ -43,12 +44,14 @@ export default function App() {
         onResync={telemetry.resync}
       />
 
+      <TradingStatus trading={telemetry.trading} />
+
       <main
         className="grid min-h-0 flex-1 grid-cols-1 gap-1.5 max-lg:auto-rows-[minmax(270px,auto)] lg:grid-cols-12"
         style={{ opacity: telemetry.status === 'offline' ? 0.66 : 1, transition: 'opacity 300ms' }}
       >
         <div className="grid min-h-0 grid-rows-[minmax(190px,1.05fr)_minmax(190px,1fr)] gap-1.5 max-lg:contents lg:col-span-8">
-          <BalanceChart history={telemetry.history} wallet={telemetry.wallet} />
+          <TradingAssets trading={telemetry.trading} />
           <div className="grid min-h-0 grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
             <HandoffGraph swarm={telemetry.swarm} simulated={swarmSimulated} />
             <PipelineGraph swarm={telemetry.swarm} simulated={swarmSimulated} />

@@ -3,12 +3,32 @@ import { Panel, StatusDot } from './Panel.jsx'
 import { INK_2, INK_3, LOG_LEVEL, STATUS, pnlColor } from '../lib/theme.js'
 import { fmtSignedUsd, fmtTime } from '../lib/format.js'
 
-const KINDS = ['ALL', 'OPEN', 'CLOSE', 'HANDOFF', 'STATUS', 'SIGNAL', 'NODE', 'ORDER', 'CONSENSUS']
+// PIPELINE (the default) shows what matters for trading: signals, decisions,
+// orders, fills, exits, errors and halts. Heartbeat-style lines stay under ALL.
+const MEANINGFUL = new Set([
+  'SIGNAL', 'APPROVED', 'REJECTED', 'RISK_BLOCK', 'INVALID', 'EXECUTION_SUBMITTED', 'EXECUTION_FILLED',
+  'POSITION_OPENED', 'POSITION_CLOSED', 'TP', 'SL', 'TIMEOUT', 'EMERGENCY', 'API_ERROR', 'EMERGENCY_HALT',
+  'ENTRY_HALTED', 'ENTRY_RESUMED', 'RECOVERED', 'STARTED', 'OPEN', 'CLOSE', 'ORDER',
+])
+const KINDS = ['PIPELINE', 'ALL', 'SIGNAL', 'REJECTED', 'POSITION_CLOSED', 'OPEN', 'CLOSE', 'HANDOFF', 'STATUS', 'NODE']
 const RENDER_LIMIT = 140
 
 const KIND_TONE = {
   OPEN: '#3987e5',
   CLOSE: INK_2,
+  APPROVED: STATUS.good,
+  REJECTED: STATUS.warning,
+  RISK_BLOCK: STATUS.warning,
+  INVALID: STATUS.critical,
+  EXECUTION_SUBMITTED: '#3987e5',
+  EXECUTION_FILLED: STATUS.good,
+  POSITION_OPENED: STATUS.good,
+  POSITION_CLOSED: INK_2,
+  TP: STATUS.good,
+  SL: STATUS.critical,
+  TIMEOUT: STATUS.warning,
+  API_ERROR: STATUS.critical,
+  EMERGENCY_HALT: STATUS.critical,
   STATUS: INK_2,
   HANDOFF: INK_2,
   ORDER: STATUS.good,
@@ -29,7 +49,8 @@ function fmtStamp(ms) {
 function Row({ event }) {
   const level = LOG_LEVEL[event.level] ?? LOG_LEVEL.info
   const kindTone = KIND_TONE[event.kind] ?? INK_3
-  const isOrder = (event.kind === 'ORDER' || event.kind === 'CLOSE') && typeof event.value === 'number'
+  const isOrder =
+    (event.kind === 'ORDER' || event.kind === 'CLOSE' || event.kind === 'POSITION_CLOSED') && typeof event.value === 'number'
 
   return (
     <li className="row-in flex items-baseline gap-2 border-b border-line/50 px-3 py-1 text-[11px] leading-snug hover:bg-raised">
@@ -39,7 +60,7 @@ function Row({ event }) {
       <span className="w-2.5 shrink-0 text-center font-bold" style={{ color: level.color }} title={level.label} aria-label={level.label}>
         {level.glyph}
       </span>
-      <span className="num w-[64px] shrink-0 truncate font-semibold tracking-wide" style={{ color: kindTone }}>
+      <span className="num w-[96px] shrink-0 truncate font-semibold tracking-wide" style={{ color: kindTone }} title={event.kind}>
         {event.kind}
       </span>
       <span className="num w-[84px] shrink-0 truncate text-ink-2">
@@ -59,12 +80,17 @@ function Row({ event }) {
 }
 
 export function ActivityLog({ activity, status }) {
-  const [filter, setFilter] = useState('ALL')
+  const [filter, setFilter] = useState('PIPELINE')
   const [pinned, setPinned] = useState(true)
   const scrollRef = useRef(null)
 
   const rows = useMemo(() => {
-    const filtered = filter === 'ALL' ? activity : activity.filter((e) => e.kind === filter)
+    const filtered =
+      filter === 'ALL'
+        ? activity
+        : filter === 'PIPELINE'
+          ? activity.filter((e) => MEANINGFUL.has(e.kind))
+          : activity.filter((e) => e.kind === filter)
     return filtered.slice(-RENDER_LIMIT)
   }, [activity, filter])
 

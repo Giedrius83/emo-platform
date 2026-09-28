@@ -16,6 +16,8 @@ REPO="Giedrius83/emo-platform"
 BASE=/opt/emo          # not $HOME: SELinux stops services running programs from home directories
 APP="$BASE/app"
 ENV_FILE="$BASE/.env"
+TRADING_ENV_FILE="$BASE/trading.env"   # trading keys: read by the trader service only
+TRADING_DB="$BASE/data/trading.db"
 say() { printf '\n==> %s\n' "$*"; }
 
 case "$(uname -m)" in
@@ -130,6 +132,7 @@ User=$(id -un)
 WorkingDirectory=$APP/services/telemetry
 EnvironmentFile=$ENV_FILE
 Environment=STATIC_DIR=$APP/deploy/web
+Environment=TRADING_DB_PATH=$TRADING_DB
 ExecStart=$BASE/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips *
 Restart=always
 RestartSec=5
@@ -140,6 +143,67 @@ UNIT
 sudo systemctl daemon-reload
 sudo systemctl enable emo-dashboard >/dev/null 2>&1
 sudo systemctl restart emo-dashboard
+
+# 4b. Trader (off until you turn it on) -------------------------------------------
+# A separate service with its own key file, so the dashboard process never holds
+# trading keys. It stays stopped until `emo-trading setup` enables DEMO trading.
+mkdir -p "$BASE/data"
+[ -f "$TRADING_ENV_FILE" ] || { umask 077; : > "$TRADING_ENV_FILE"; }
+chmod 600 "$TRADING_ENV_FILE"
+sudo tee /etc/systemd/system/emo-trader.service >/dev/null <<UNIT
+[Unit]
+Description=eToro crypto trader (SCOUT -> QUANT -> GUARD -> TRADER)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=$(id -un)
+WorkingDirectory=$APP/services/telemetry
+EnvironmentFile=$TRADING_ENV_FILE
+Environment=TRADING_DB_PATH=$TRADING_DB
+ExecStart=$BASE/venv/bin/python -m app.trading run
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo tee /usr/local/bin/emo-trading >/dev/null <<HELPER
+#!/usr/bin/env bash
+# emo-trading setup | status | logs | stop | start | recover "what you checked"
+set -euo pipefail
+ENVF="$TRADING_ENV_FILE"
+run() { cd "$APP/services/telemetry" && set -a && . "\$ENVF" && set +a && TRADING_DB_PATH="$TRADING_DB" "$BASE/venv/bin/python" -m app.trading "\$@"; }
+case "\${1:-status}" in
+  setup)
+    echo "DEMO trading setup. Create the key in eToro: Settings > Trading > API Key Management,"
+    echo "environment DEMO, permission WRITE. Nothing typed here is shown or logged."
+    read -r -p "  Public Key: " K1
+    read -r -s -p "  DEMO API Key (hidden): " K2; echo
+    [ -n "\$K1" ] && [ -n "\$K2" ] || { echo "both keys are needed"; exit 1; }
+    umask 077
+    grep -v -E '^(ETORO_TRADING_API_KEY|ETORO_TRADING_USER_KEY|TRADING_ENV|TRADING_PIPELINE_ENABLED)=' "\$ENVF" > "\$ENVF.tmp" || true
+    printf 'ETORO_TRADING_API_KEY=%s\nETORO_TRADING_USER_KEY=%s\nTRADING_ENV=demo\nTRADING_PIPELINE_ENABLED=true\n' "\$K1" "\$K2" >> "\$ENVF.tmp"
+    mv "\$ENVF.tmp" "\$ENVF"; chmod 600 "\$ENVF"
+    sudo systemctl enable --now emo-trader >/dev/null 2>&1; sudo systemctl restart emo-trader
+    sleep 8; sudo journalctl -u emo-trader -n 15 --no-pager -o cat ;;
+  status)  run status ;;
+  logs)    sudo journalctl -u emo-trader -n "\${2:-60}" --no-pager -o cat ;;
+  stop)    sudo systemctl disable --now emo-trader && echo "trader stopped; open positions keep their eToro TP and backstop SL" ;;
+  start)   sudo systemctl enable --now emo-trader && echo started ;;
+  recover) shift; run recover --reason "\$*" ;;
+  *) echo "usage: emo-trading setup|status|logs|stop|start|recover <reason>"; exit 2 ;;
+esac
+HELPER
+sudo chmod 755 /usr/local/bin/emo-trading
+sudo systemctl daemon-reload
+if grep -q '^TRADING_PIPELINE_ENABLED=true' "$TRADING_ENV_FILE" 2>/dev/null; then
+  sudo systemctl enable emo-trader >/dev/null 2>&1
+  sudo systemctl restart emo-trader
+  TRADER_STATUS="running (see: emo-trading status)"
+else
+  TRADER_STATUS="off. To trade on DEMO run: emo-trading setup"
+fi
 
 # 5. Health ----------------------------------------------------------------------
 say "Waiting for http://localhost:8000/health"
@@ -236,6 +300,7 @@ cat <<EOF
 
 ==================================================================
  eToro:      $ETORO_STATUS
+ Trader:     $TRADER_STATUS
 
  YOUR DASHBOARD (open it in any browser, phone too):
 
