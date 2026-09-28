@@ -108,3 +108,12 @@ def test_socket_publishers_need_the_token_too(client, monkeypatch) -> None:
     with client.websocket_connect("/ws/ingest?token=s3cret") as ws:
         ws.send_json({"kind": "signal", "bot_id": "orka", "message": "all bots healthy"})
         assert ws.receive_json()["ok"] is True
+
+
+def test_every_new_task_shows_in_the_log(client) -> None:
+    post(client, {"kind": "heartbeat", "bot_id": "SCOUT", "task": "scanning XRP"})
+    post(client, {"kind": "heartbeat", "bot_id": "SCOUT", "task": "scanning LINK"})
+    post(client, {"kind": "heartbeat", "bot_id": "SCOUT", "task": "scanning LINK"})  # repeat: no new line
+    lines = [e for e in main.hub.state.activity if e.source == "SCOUT"]
+    assert [e.kind for e in lines] == ["NODE", "STATUS"]
+    assert lines[-1].message == "scanning LINK"

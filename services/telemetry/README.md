@@ -47,6 +47,10 @@ trade. Until they do, those panels are marked SIMULATED.
 
 ## Deploy to a VPS with Docker
 
+The Docker image builds the dashboard and serves it from the same address as
+the API, so a server running this image is the whole platform: open its address
+in a browser and the dashboard is there. Vercel is optional.
+
 From the repository root, `docker compose up -d --build` builds and starts the
 service. The port is bound to `127.0.0.1:8000` only, so nothing is exposed on
 the public interface; a tunnel reaches it locally.

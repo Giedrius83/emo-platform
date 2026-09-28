@@ -20,6 +20,7 @@ from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import TypeAdapter, ValidationError
 
 from .etoro import DEFAULT_BASE, EtoroClient, EtoroFeed
@@ -246,3 +247,13 @@ async def ingest_socket(websocket: WebSocket, token: str | None = Query(default=
             await websocket.send_json({"ok": True, "logged": len(produced)})
     except (WebSocketDisconnect, RuntimeError, ConnectionError):
         log.info("publisher disconnected")
+
+
+# Serve the built dashboard from this same address when it is present (the
+# Docker image bundles it). Same origin means no CORS and no URL to configure:
+# open the server's address and the dashboard is there. Mounted last so every
+# API and socket route above takes precedence.
+_static = os.environ.get("STATIC_DIR", "")
+if _static and os.path.isdir(_static):
+    app.mount("/", StaticFiles(directory=_static, html=True), name="dashboard")
+    log.info("serving the dashboard from %s", _static)

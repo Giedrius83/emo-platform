@@ -9,7 +9,6 @@ set -euo pipefail
 
 REPO_URL="https://github.com/Giedrius83/emo-platform.git"
 APP_DIR="$HOME/emo-platform"
-TUNNEL_DIR="$HOME/cloudflared"
 say() { printf '\n==> %s\n' "$*"; }
 
 # 1. Docker CE -----------------------------------------------------------------
@@ -43,9 +42,9 @@ fi
 ENV_FILE="$APP_DIR/.env"
 if ! grep -q '^ETORO_USER_KEY=.' "$ENV_FILE" 2>/dev/null; then
   if [ -r /dev/tty ]; then
-    say "eToro API keys (read-only access is enough; press Enter to skip)"
-    read -r -p "  x-api-key  (application key): " ETORO_API_KEY < /dev/tty || true
-    read -r -s -p "  x-user-key (user key, hidden): " ETORO_USER_KEY < /dev/tty || true
+    say "eToro keys: eToro > Settings > Trading > API Key Management (Enter skips)"
+    read -r -p "  Public Key (copy button next to it): " ETORO_API_KEY < /dev/tty || true
+    read -r -s -p "  API Key you created (hidden while pasting): " ETORO_USER_KEY < /dev/tty || true
     echo
     read -r -p "  account [real/demo, default real]: " ETORO_ACCOUNT < /dev/tty || true
     if [ -n "${ETORO_API_KEY:-}" ] && [ -n "${ETORO_USER_KEY:-}" ]; then
@@ -91,35 +90,66 @@ curl -fsS http://localhost:8000/health >/dev/null || {
 }
 
 # 6. Tunnel ----------------------------------------------------------------------
+# A system service, so the tunnel survives crashes and starts again after a
+# reboot. The binary lives in /usr/local/bin: SELinux on Oracle Linux blocks
+# services from executing programs in a home directory.
 case "$(uname -m)" in
   aarch64|arm64) ARCH=arm64 ;;
   x86_64|amd64)  ARCH=amd64 ;;
   *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
-mkdir -p "$TUNNEL_DIR"
-cd "$TUNNEL_DIR"
-if [ ! -x ./cloudflared ]; then
-  say "Downloading cloudflared ($ARCH)"
-  curl -fsSL -o cloudflared "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH"
-  chmod +x cloudflared
+if [ ! -x /usr/local/bin/cloudflared ]; then
+  say "Installing cloudflared ($ARCH)"
+  curl -fsSL -o /tmp/cloudflared "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH"
+  sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
+  rm -f /tmp/cloudflared
+  command -v restorecon >/dev/null && sudo restorecon /usr/local/bin/cloudflared || true
 fi
-
-say "Starting the quick tunnel"
+# Retire the tunnel an earlier version of this script started by hand.
 pkill -f "cloudflared tunnel --url" 2>/dev/null || true
-: > cloudflared.log
-nohup ./cloudflared tunnel --no-autoupdate --url http://localhost:8000 > cloudflared.log 2>&1 &
+
+sudo tee /etc/systemd/system/emo-tunnel.service >/dev/null <<'UNIT'
+[Unit]
+Description=Cloudflare quick tunnel to the trading dashboard
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate --url http://localhost:8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# Prints the tunnel's current address; the address changes whenever it restarts.
+sudo tee /usr/local/bin/emo-url >/dev/null <<'HELPER'
+#!/bin/sh
+journalctl -u emo-tunnel --no-pager -o cat 2>/dev/null \
+  | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | grep -v '://api\.' | tail -1
+HELPER
+sudo chmod 755 /usr/local/bin/emo-url
+
+say "Starting the tunnel"
+sudo systemctl daemon-reload
+sudo systemctl enable emo-tunnel >/dev/null 2>&1
+STARTED=$(date '+%Y-%m-%d %H:%M:%S')
+sudo systemctl restart emo-tunnel
 
 # 7. URL -------------------------------------------------------------------------
 URL=""
 for _ in $(seq 1 45); do
+  # Only lines from this start: an older address in the journal is dead.
   # Skip api.trycloudflare.com: cloudflared names it in errors when a request retries.
-  URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' cloudflared.log | grep -v '://api\.' | head -1 || true)
+  URL=$(sudo journalctl -u emo-tunnel --since "$STARTED" --no-pager -o cat 2>/dev/null \
+        | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | grep -v '://api\.' | tail -1 || true)
   [ -n "$URL" ] && break
   sleep 2
 done
-[ -n "$URL" ] || { echo "No tunnel URL after 90s. Log:" >&2; tail -30 cloudflared.log >&2; exit 1; }
+[ -n "$URL" ] || { echo "No tunnel address after 90s. Log:" >&2; sudo journalctl -u emo-tunnel -n 30 --no-pager >&2; exit 1; }
 
-# The tunnel needs a moment after printing its URL before it routes traffic.
+# The tunnel needs a moment after printing its address before it routes traffic.
 for _ in $(seq 1 30); do
   curl -fsS "$URL/health" >/dev/null 2>&1 && break
   sleep 2
@@ -141,29 +171,42 @@ PY
 sleep 5  # give the first eToro poll a moment
 ETORO_STATUS=$(curl -fsS http://localhost:8000/health | python3 -c "$STATUS_PY" 2>/dev/null || echo "unknown")
 
+REPORT_URL="https://raw.githubusercontent.com/Giedrius83/emo-platform/main/deploy/report.sh"
 cat <<EOF
 
 ==================================================================
- eToro:        $ETORO_STATUS
- Tunnel URL:   $URL
- Health:       $(curl -fsS "$URL/health" 2>/dev/null || echo "not routing yet, retry in a minute")
- Socket:       ${URL/https:/wss:}/ws/telemetry
+ eToro:      $ETORO_STATUS
 
- Set this in Vercel as VITE_TELEMETRY_URL (https, not wss):
+ YOUR DASHBOARD (open it in any browser, phone too):
+
      $URL
+
+ If the server restarts, the address changes. Log in and run: emo-url
 ==================================================================
 
- CONNECT YOUR GROK BOTS (details: deploy/GROK_BOTS.md)
+ CONNECT YOUR GROK BOTS: copy everything between the lines and send
+ it to your Manager bot in Grok Bot, as one message.
+------------------------------------------------------------------
+Please set up dashboard reporting for the whole swarm. Do these steps on our shared computer and show me the output of each.
 
- 1) Send this to your Manager bot:
+Step 1. Run exactly:
+printf 'DASHBOARD_URL=%s\nDASHBOARD_TOKEN=%s\n' '$URL' '$INGEST_TOKEN' > ~/dashboard.env
+curl -fsSL $REPORT_URL -o ~/report && chmod +x ~/report
+~/report status MANAGER "dashboard reporting is live"
 
-Create the file ~/dashboard.env on our shared computer with exactly these two lines,
-then confirm it exists with: cat ~/dashboard.env
+The last command must print a line containing "accepted":1. Anything else, show me the output.
 
-DASHBOARD_URL=$URL
-DASHBOARD_TOKEN=$INGEST_TOKEN
+Step 2. Send this standing rule to every bot (Scout, Planner, Quant, Guard, Trader, ORKA, Coder), follow it yourself, and ask each bot to save it permanently:
 
- 2) Add the reporting block from deploy/GROK_BOTS.md to each bot's
-    instructions, with that bot's own name.
+"DASHBOARD RULE: after every meaningful step, run ONE command on our shared computer, using your own name in capitals:
+~/report status YOURNAME "what you are doing now"
+~/report handoff YOURNAME "what you pass on" TARGETNAME   (when you hand work to another bot)
+~/report done YOURNAME "a result or decision"
+~/report alert YOURNAME "a problem"
+Keep the text short. Never put keys, passwords or tokens in it. If the command fails, ignore it and keep working."
+------------------------------------------------------------------
+
+ If the dashboard address ever changes, send the Manager only the
+ Step 1 line that starts with printf, with the new address.
 ==================================================================
 EOF

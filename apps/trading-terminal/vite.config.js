@@ -34,9 +34,9 @@ function validateTelemetryUrl() {
 
       if (!raw) {
         log(
-          'VITE_TELEMETRY_URL is not set. The bundle will try to reach the telemetry\n' +
-            '           service on its own origin, which only works behind the dev proxy.\n' +
-            '           Set it to the origin of the FastAPI service before deploying.',
+          'VITE_TELEMETRY_URL is not set: the dashboard will talk to the server that\n' +
+            '           serves it. That is right for the Docker image, which serves both.\n' +
+            '           For a separate host such as Vercel, set it to the service origin.',
         )
         return
       }

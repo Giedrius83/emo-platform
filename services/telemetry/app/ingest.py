@@ -34,6 +34,7 @@ def _apply_heartbeat(state: TerminalState, event: BotHeartbeat) -> list[Activity
     if bot is None:
         return []
     previous = bot.status
+    previous_task = bot.task
     bot.status = event.status
     bot.last_seen = int(time.time() * 1000)
     # Grok bots rarely know their latency or load; keep what we have.
@@ -62,9 +63,11 @@ def _apply_heartbeat(state: TerminalState, event: BotHeartbeat) -> list[Activity
                 "NODE",
                 f"{previous.value} → {bot.status.value}" + (f" · {bot.task}" if event.task else ""),
                 level=level,
-                value=bot.last_ping_ms,
             )
         ]
+    if event.task and event.task != previous_task:
+        # What a bot is doing is the point of the dashboard: log every new task.
+        return [state.log(bot.id, "STATUS", event.task)]
     return []
 
 
