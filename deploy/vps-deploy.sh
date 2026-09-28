@@ -11,9 +11,23 @@ REPO_URL="https://github.com/Giedrius83/emo-platform.git"
 APP_DIR="$HOME/emo-platform"
 say() { printf '\n==> %s\n' "$*"; }
 
+# 0. Memory ----------------------------------------------------------------------
+# Oracle's free 1 GB shape runs out of memory installing packages and building
+# the dashboard. Give small servers 2 GB of swap first; bigger ones are untouched.
+MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+SWAP_KB=$(awk '/SwapTotal/ {print $2}' /proc/meminfo)
+if [ "$MEM_KB" -lt 3000000 ] && [ "$SWAP_KB" -lt 1000000 ] && [ ! -e /swapfile ]; then
+  say "Small server ($((MEM_KB / 1024)) MB memory): adding 2 GB of swap"
+  sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile >/dev/null
+  sudo swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+fi
+
 # 1. Docker CE -----------------------------------------------------------------
 if ! command -v docker >/dev/null 2>&1; then
-  say "Installing Docker CE"
+  say "Installing Docker CE (3-15 minutes on a small server; it may look frozen)"
   sudo dnf install -y dnf-utils
   sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
   sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
