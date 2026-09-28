@@ -45,7 +45,7 @@ the new one, then send the Manager just this line with the new address:
 printf 'DASHBOARD_URL=%s\nDASHBOARD_TOKEN=%s\n' 'NEW-ADDRESS' 'YOUR-TOKEN' > ~/dashboard.env
 ```
 
-The token is in the server's `~/emo-platform/.env` file as `INGEST_TOKEN`.
+The token is in the server's `/opt/emo/.env` file as `INGEST_TOKEN`.
 
 ## Replies from `~/report`
 

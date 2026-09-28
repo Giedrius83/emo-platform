@@ -55,9 +55,12 @@ From the repository root, `docker compose up -d --build` builds and starts the
 service. The port is bound to `127.0.0.1:8000` only, so nothing is exposed on
 the public interface; a tunnel reaches it locally.
 
-On Oracle Linux 9, `deploy/vps-deploy.sh` does the whole thing: installs Docker
-CE, clones or updates the repository, builds, waits for `/health`, starts a
-Cloudflare quick tunnel and prints its URL. Run it on the VPS as `opc`:
+On Oracle Linux 9, `deploy/vps-deploy.sh` does the whole thing without Docker
+or dnf, which run out of memory on Oracle's free 1 GB shape. It downloads the
+code as a tarball, uses uv to fetch a standalone Python 3.11 into `/opt/emo`,
+serves the prebuilt dashboard from `deploy/web`, runs everything as systemd
+services, and prints the tunnel address. The service uses about 65 MB of memory.
+Run it on the VPS as `opc`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Giedrius83/emo-platform/main/deploy/vps-deploy.sh | bash
@@ -183,3 +186,12 @@ The service must be reachable over `https`, so that the socket can upgrade to
 `wss` from an `https` dashboard, and it must run somewhere that keeps a process
 alive. Vercel functions cannot hold the long-lived WebSocket connections this
 service depends on.
+
+## Rebuilding the prebuilt dashboard
+
+The VPS serves `deploy/web`, a build committed to the repository so small
+servers never compile anything. After changing the dashboard, refresh it:
+
+```bash
+cd apps/trading-terminal && npm run build:deploy
+```

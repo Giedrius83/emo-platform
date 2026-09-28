@@ -1,19 +1,37 @@
 #!/usr/bin/env bash
-# Deploy the telemetry backend to an Oracle Linux 9 VPS and expose it through a
-# Cloudflare quick tunnel. Run on the VPS as the opc user:
+# Deploy the trading dashboard to a small Linux server (built for Oracle Linux 9
+# on Oracle's free 1 GB shape) and expose it through a Cloudflare quick tunnel.
+# Run on the server as the opc user:
 #
 #   curl -fsSL https://raw.githubusercontent.com/Giedrius83/emo-platform/main/deploy/vps-deploy.sh | bash
 #
-# Safe to re-run: it pulls the latest code, rebuilds, and restarts the tunnel.
+# Safe to re-run: it updates the code, keeps your keys, and restarts services.
+#
+# It deliberately avoids dnf and Docker: on a 1 GB server dnf runs out of memory
+# processing package metadata. Everything here is a single downloaded binary or
+# a prebuilt file, so the whole run needs well under 200 MB of memory.
 set -euo pipefail
 
-REPO_URL="https://github.com/Giedrius83/emo-platform.git"
-APP_DIR="$HOME/emo-platform"
+REPO="Giedrius83/emo-platform"
+BASE=/opt/emo          # not $HOME: SELinux stops services running programs from home directories
+APP="$BASE/app"
+ENV_FILE="$BASE/.env"
 say() { printf '\n==> %s\n' "$*"; }
 
-# 0. Memory ----------------------------------------------------------------------
-# Oracle's free 1 GB shape runs out of memory installing packages and building
-# the dashboard. Give small servers 2 GB of swap first; bigger ones are untouched.
+case "$(uname -m)" in
+  aarch64|arm64) ARCH=arm64; UV_ARCH=aarch64 ;;
+  x86_64|amd64)  ARCH=amd64; UV_ARCH=x86_64 ;;
+  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
+# 0. Clear the way -------------------------------------------------------------
+# An earlier version of this script ran dnf, which can sit stuck for hours on a
+# small server. It is no longer needed; stop it so it frees memory.
+if pgrep -f '/usr/bin/dnf' >/dev/null 2>&1; then
+  say "Stopping a stuck package install from an earlier attempt"
+  sudo pkill -9 -f '/usr/bin/dnf' || true
+fi
+
 MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
 SWAP_KB=$(awk '/SwapTotal/ {print $2}' /proc/meminfo)
 if [ "$MEM_KB" -lt 3000000 ] && [ "$SWAP_KB" -lt 1000000 ] && [ ! -e /swapfile ]; then
@@ -25,35 +43,35 @@ if [ "$MEM_KB" -lt 3000000 ] && [ "$SWAP_KB" -lt 1000000 ] && [ ! -e /swapfile ]
   grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
 fi
 
-# 1. Docker CE -----------------------------------------------------------------
-if ! command -v docker >/dev/null 2>&1; then
-  say "Installing Docker CE (3-15 minutes on a small server; it may look frozen)"
-  sudo dnf install -y dnf-utils
-  sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-  sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  sudo systemctl enable --now docker
-  sudo usermod -aG docker "$USER"
-else
-  say "Docker already installed: $(docker --version)"
-  sudo systemctl enable --now docker
-fi
-# Group membership only applies to new logins, so use sudo for this run.
-DOCKER="sudo docker"
+sudo mkdir -p "$BASE"
+sudo chown "$(id -u):$(id -g)" "$BASE"
 
-# 2. Code ------------------------------------------------------------------------
-if [ -d "$APP_DIR/.git" ]; then
-  say "Updating $APP_DIR"
-  git -C "$APP_DIR" pull --ff-only
-else
-  say "Cloning $REPO_URL"
-  sudo dnf install -y git >/dev/null
-  git clone "$REPO_URL" "$APP_DIR"
-fi
+# 1. Code ------------------------------------------------------------------------
+# A tarball, so git is not needed. The dashboard comes prebuilt in deploy/web.
+say "Downloading the latest code"
+TMP=$(mktemp -d)
+curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/main" | tar -xz -C "$TMP"
+rm -rf "$APP"
+mv "$TMP"/emo-platform-main "$APP"
+rm -rf "$TMP"
 
-# 3. eToro keys -----------------------------------------------------------------
-# Stored in $APP_DIR/.env (git-ignored, readable only by you). Asked once; delete
-# the file and re-run to change them. Skip them and the account is simulated.
-ENV_FILE="$APP_DIR/.env"
+# 2. Python ----------------------------------------------------------------------
+# uv is one static binary; it fetches a standalone Python 3.11 into /opt/emo, so
+# the system's Python 3.9 and package manager are never touched.
+if [ ! -x "$BASE/bin/uv" ]; then
+  say "Installing uv (Python manager)"
+  mkdir -p "$BASE/bin"
+  curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/uv-$UV_ARCH-unknown-linux-gnu.tar.gz" \
+    | tar -xz -C "$BASE/bin" --strip-components=1
+fi
+export UV_PYTHON_INSTALL_DIR="$BASE/python" UV_CACHE_DIR="$BASE/cache"
+say "Preparing Python 3.11 and the service's libraries (1-3 minutes)"
+[ -x "$BASE/venv/bin/python" ] || "$BASE/bin/uv" venv --quiet --python 3.11 --python-preference only-managed "$BASE/venv"
+"$BASE/bin/uv" pip install --quiet --python "$BASE/venv/bin/python" -r "$APP/services/telemetry/requirements.txt"
+
+# 3. eToro keys -------------------------------------------------------------------
+# Stored in /opt/emo/.env, readable only by you. Asked once; delete the file and
+# re-run to change them. Skip them and the account numbers are simulated.
 if ! grep -q '^ETORO_USER_KEY=.' "$ENV_FILE" 2>/dev/null; then
   if [ -r /dev/tty ]; then
     say "eToro keys: eToro > Settings > Trading > API Key Management (Enter skips)"
@@ -67,8 +85,7 @@ if ! grep -q '^ETORO_USER_KEY=.' "$ENV_FILE" 2>/dev/null; then
         echo "ETORO_API_KEY=$ETORO_API_KEY"
         echo "ETORO_USER_KEY=$ETORO_USER_KEY"
         echo "ETORO_ACCOUNT=${ETORO_ACCOUNT:-real}"
-      } > "$ENV_FILE"
-      chmod 600 "$ENV_FILE"
+      } >> "$ENV_FILE"
       echo "  saved to $ENV_FILE"
     else
       echo "  skipped: the dashboard will show SIMULATED account numbers"
@@ -77,41 +94,63 @@ if ! grep -q '^ETORO_USER_KEY=.' "$ENV_FILE" 2>/dev/null; then
     echo "No terminal to ask for eToro keys; running with simulated account numbers." >&2
   fi
 fi
-
 # Private token so only your bots can post to the (public) dashboard address.
 if ! grep -q '^INGEST_TOKEN=.' "$ENV_FILE" 2>/dev/null; then
   umask 077
-  echo "INGEST_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(16))')" >> "$ENV_FILE"
-  chmod 600 "$ENV_FILE"
+  echo "INGEST_TOKEN=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')" >> "$ENV_FILE"
 fi
+chmod 600 "$ENV_FILE"
 INGEST_TOKEN=$(grep '^INGEST_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
 
-# 4. Build and start ------------------------------------------------------------
-say "Building and starting the telemetry service"
-cd "$APP_DIR"
-$DOCKER compose up -d --build
+# 4. Service ---------------------------------------------------------------------
+say "Starting the dashboard service"
+# SELinux: reset /opt/emo to its default labels, then mark the program folders
+# as executables so the service manager is allowed to start them.
+if command -v restorecon >/dev/null && command -v getenforce >/dev/null && [ "$(getenforce)" != "Disabled" ]; then
+  sudo restorecon -R "$BASE" || true
+  for dir in "$BASE"/bin "$BASE"/venv/bin "$BASE"/python/*/bin; do
+    [ -d "$dir" ] && sudo chcon -R -t bin_t "$dir" || true
+  done
+fi
+sudo tee /etc/systemd/system/emo-dashboard.service >/dev/null <<UNIT
+[Unit]
+Description=Trading dashboard (telemetry API and web page)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=$(id -un)
+WorkingDirectory=$APP/services/telemetry
+EnvironmentFile=$ENV_FILE
+Environment=STATIC_DIR=$APP/deploy/web
+ExecStart=$BASE/venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips *
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo systemctl daemon-reload
+sudo systemctl enable emo-dashboard >/dev/null 2>&1
+sudo systemctl restart emo-dashboard
 
 # 5. Health ----------------------------------------------------------------------
 say "Waiting for http://localhost:8000/health"
 for _ in $(seq 1 45); do
-  if curl -fsS http://localhost:8000/health; then echo; break; fi
+  curl -fsS http://localhost:8000/health >/dev/null 2>&1 && break
   sleep 2
 done
 curl -fsS http://localhost:8000/health >/dev/null || {
-  echo "Service did not become healthy. Recent logs:" >&2
-  $DOCKER compose logs --tail 50 telemetry >&2
+  echo "The service did not start. Recent logs:" >&2
+  sudo journalctl -u emo-dashboard -n 40 --no-pager >&2
   exit 1
 }
+echo "  service is up"
 
 # 6. Tunnel ----------------------------------------------------------------------
 # A system service, so the tunnel survives crashes and starts again after a
 # reboot. The binary lives in /usr/local/bin: SELinux on Oracle Linux blocks
 # services from executing programs in a home directory.
-case "$(uname -m)" in
-  aarch64|arm64) ARCH=arm64 ;;
-  x86_64|amd64)  ARCH=amd64 ;;
-  *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
-esac
 if [ ! -x /usr/local/bin/cloudflared ]; then
   say "Installing cloudflared ($ARCH)"
   curl -fsSL -o /tmp/cloudflared "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH"
@@ -125,7 +164,7 @@ pkill -f "cloudflared tunnel --url" 2>/dev/null || true
 sudo tee /etc/systemd/system/emo-tunnel.service >/dev/null <<'UNIT'
 [Unit]
 Description=Cloudflare quick tunnel to the trading dashboard
-After=network-online.target docker.service
+After=network-online.target emo-dashboard.service
 Wants=network-online.target
 
 [Service]
