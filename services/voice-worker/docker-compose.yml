@@ -1,0 +1,45 @@
+# Standalone voice secretary: worker + Caddy (automatic HTTPS).
+#   cp .env.example .env   # fill in on the server only; keep LIVE_DIAL=false
+#   VOICE_HOST=voice.example.com docker compose up -d --build
+#   curl -s https://voice.example.com/health
+services:
+  voice-worker:
+    build: .
+    container_name: voice-worker
+    restart: always
+    env_file: .env
+    environment:
+      DATA_DIR: /srv/data
+      PORT: "3000"
+    volumes:
+      - voice-data:/srv/data
+    # Not published: only Caddy reaches it, over the compose network.
+    expose:
+      - "3000"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: voice-caddy
+    restart: always
+    depends_on:
+      - voice-worker
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      VOICE_HOST: ${VOICE_HOST:?set VOICE_HOST to the DNS name pointing at this VM}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+volumes:
+  voice-data:
+  caddy-data:
+  caddy-config:
