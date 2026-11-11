@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix Digital Rain Simulator</title>
+    <!-- Tailwind CSS CDN (pinned) -->
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <!-- Lucide Icons (pinned) -->
+    <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+
+        #matrix-canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* Glassmorphism control panel */
+        .glass-panel {
+            background: rgba(10, 15, 10, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 255, 70, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8), inset 0 0 15px rgba(0, 255, 70, 0.05);
+        }
+
+        .glass-panel:hover {
+            border-color: rgba(0, 255, 70, 0.4);
+        }
+
+        /* Custom scrollbar for control panel */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 5px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.3);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(0, 255, 70, 0.3);
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 255, 70, 0.6);
+        }
+
+        /* Custom glow text effects */
+        .matrix-glow {
+            text-shadow: 0 0 8px currentColor;
+        }
+    </style>
+</head>
+<body class="text-gray-200 select-none">
+
+    <!-- Matrix Canvas -->
+    <canvas id="matrix-canvas"></canvas>
+
+    <!-- Overlay UI Container -->
+    <div class="relative z-10 w-full h-full pointer-events-none flex flex-col justify-between p-4 md:p-6">
+
+        <!-- Top Bar Header -->
+        <div class="flex justify-between items-start w-full gap-2">
+            <div class="pointer-events-auto glass-panel rounded-xl p-3 sm:p-4 flex items-center space-x-3 min-w-0 transition-all duration-300">
+                <div id="status-dot" class="shrink-0 w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+                <div class="min-w-0">
+                    <h1 class="truncate text-xs sm:text-sm font-bold tracking-widest uppercase text-emerald-400 matrix-glow">SYSTEM//MATRIX_RAIN</h1>
+                    <p class="truncate text-xs text-gray-400 font-mono" id="fps-counter">FPS: 60 | STREAMS: --</p>
+                </div>
+            </div>
+
+            <div class="pointer-events-auto flex shrink-0 space-x-2">
+                <!-- Back to main site -->
+                <a href="/" class="glass-panel p-2.5 sm:p-3 rounded-xl hover:bg-emerald-950/40 text-emerald-400 transition hover:scale-105 active:scale-95 flex items-center justify-center" title="Back to EMO">
+                    <i data-lucide="home" class="w-5 h-5"></i>
+                </a>
+                <!-- Toggle Panel Button -->
+                <button id="toggle-panel-btn" class="glass-panel p-2.5 sm:p-3 rounded-xl hover:bg-emerald-950/40 text-emerald-400 transition hover:scale-105 active:scale-95 flex items-center justify-center" title="Toggle Controls">
+                    <i data-lucide="sliders" class="w-5 h-5"></i>
+                </button>
+                <!-- Fullscreen Button -->
+                <button id="fullscreen-btn" class="glass-panel p-2.5 sm:p-3 rounded-xl hover:bg-emerald-950/40 text-emerald-400 transition hover:scale-105 active:scale-95 flex items-center justify-center" title="Toggle Fullscreen">
+                    <i data-lucide="maximize" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Floating Controls Panel -->
+        <div id="control-panel" class="pointer-events-auto self-end w-full sm:w-80 glass-panel rounded-2xl p-5 my-auto max-h-[85vh] flex flex-col transition-all duration-300 transform translate-x-0 opacity-100 shadow-2xl">
+
+            <div class="flex justify-between items-center mb-4 border-b border-emerald-900/50 pb-3">
+                <div class="flex items-center space-x-2 text-emerald-400">
+                    <i data-lucide="terminal" class="w-4 h-4"></i>
+                    <span class="font-mono font-bold text-sm tracking-wider uppercase">Parameters</span>
+                </div>
+                <button id="close-panel-btn" class="text-gray-400 hover:text-emerald-400 transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <div class="space-y-4 overflow-y-auto pr-1 custom-scrollbar text-xs font-mono">
+
+                <!-- Preset Themes -->
+                <div>
+                    <label class="block text-gray-400 mb-2">COLOR PALETTE</label>
+                    <div class="grid grid-cols-4 gap-2">
+                        <button data-color="matrix" class="color-btn py-2 rounded-lg border border-emerald-500/50 bg-emerald-950/30 text-emerald-400 hover:bg-emerald-900/50 transition font-bold text-center">Matrix</button>
+                        <button data-color="cyber" class="color-btn py-2 rounded-lg border border-cyan-500/50 bg-cyan-950/30 text-cyan-400 hover:bg-cyan-900/50 transition font-bold text-center">Cyber</button>
+                        <button data-color="amber" class="color-btn py-2 rounded-lg border border-amber-500/50 bg-amber-950/30 text-amber-400 hover:bg-amber-900/50 transition font-bold text-center">Amber</button>
+                        <button data-color="ghost" class="color-btn py-2 rounded-lg border border-gray-400/50 bg-gray-900/30 text-gray-200 hover:bg-gray-800/50 transition font-bold text-center">Ghost</button>
+                    </div>
+                </div>
+
+                <!-- Character Set Selection -->
+                <div>
+                    <label class="block text-gray-400 mb-1" for="charset-select">CHARACTER STREAM</label>
+                    <select id="charset-select" class="w-full bg-black/60 border border-emerald-800/60 rounded-lg p-2 text-emerald-400 focus:outline-none focus:border-emerald-400">
+                        <option value="matrix">Classic Matrix (Katakana/Kanji/Num)</option>
+                        <option value="binary">Binary Data (0 &amp; 1)</option>
+                        <option value="hex">Hexadecimal (0-9, A-F)</option>
+                        <option value="runes">Norse Runes</option>
+                        <option value="ascii">ASCII Symbols</option>
+                    </select>
+                </div>
+
+                <!-- Speed Control -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <label class="text-gray-400" for="speed-range">FALL SPEED</label>
+                        <span id="speed-val" class="text-emerald-400">1.0x</span>
+                    </div>
+                    <input type="range" id="speed-range" min="0.2" max="3.0" step="0.1" value="1.0" class="w-full accent-emerald-500 bg-black/40 h-1.5 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Font Size -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <label class="text-gray-400" for="fontsize-range">FONT SIZE</label>
+                        <span id="fontsize-val" class="text-emerald-400">16px</span>
+                    </div>
+                    <input type="range" id="fontsize-range" min="10" max="32" step="2" value="16" class="w-full accent-emerald-500 bg-black/40 h-1.5 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Rain Density -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <label class="text-gray-400" for="density-range">RAIN DENSITY</label>
+                        <span id="density-val" class="text-emerald-400">100%</span>
+                    </div>
+                    <input type="range" id="density-range" min="20" max="200" step="10" value="100" class="w-full accent-emerald-500 bg-black/40 h-1.5 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Fade Trail Persistence -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <label class="text-gray-400" for="fade-range">TRAIL PERSISTENCE</label>
+                        <span id="fade-val" class="text-emerald-400">Medium</span>
+                    </div>
+                    <input type="range" id="fade-range" min="0.03" max="0.25" step="0.01" value="0.08" class="w-full accent-emerald-500 bg-black/40 h-1.5 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="pt-2 flex space-x-2">
+                    <button id="pause-btn" class="flex-1 py-2 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/50 transition flex items-center justify-center space-x-1">
+                        <span id="pause-icon" class="flex"><i data-lucide="pause" class="w-4 h-4"></i></span>
+                        <span id="pause-label">PAUSE</span>
+                    </button>
+                    <button id="reset-btn" class="py-2 px-3 rounded-lg bg-black/40 border border-red-500/30 text-red-400 hover:bg-red-950/40 transition" title="Reset Defaults">
+                        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Footer Info -->
+        <div class="pointer-events-auto glass-panel self-start rounded-xl p-3 text-xs text-gray-400 font-mono hidden md:flex items-center space-x-4">
+            <span class="flex items-center space-x-1 text-emerald-400">
+                <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                <span>HTML5 CANVAS ENGINE</span>
+            </span>
+            <span>•</span>
+            <span>Click canvas to spawn glitch ripple</span>
+        </div>
+    </div>
+
+    <!-- JavaScript Engine -->
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // Canvas Setup
+        const canvas = document.getElementById('matrix-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Configuration State
+        const config = {
+            fontSize: 16,
+            speedMultiplier: 1.0,
+            density: 1.0,
+            fadeOpacity: 0.08,
+            charSetKey: 'matrix',
+            colorScheme: 'matrix',
+            paused: false
+        };
+
+        // Palette definitions
+        const palettes = {
+            matrix: { main: '#00FF66', head: '#E0FFEC', glow: 'rgba(0, 255, 102, 0.5)' },
+            cyber:  { main: '#00F0FF', head: '#E0F8FF', glow: 'rgba(0, 240, 255, 0.5)' },
+            amber:  { main: '#FFB000', head: '#FFF5E0', glow: 'rgba(255, 176, 0, 0.5)' },
+            ghost:  { main: '#CCCCCC', head: '#FFFFFF', glow: 'rgba(255, 255, 255, 0.5)' }
+        };
+
+        // Character Sets
+        const charSets = {
+            matrix: 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789:・."=*+-<>',
+            binary: '01',
+            hex: '0123456789ABCDEF',
+            runes: 'ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛅᛇᛈᛉᛋᛏᛒᛖᛗᛚᛞᛟ',
+            ascii: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*+=~'
+        };
+
+        let columns = [];
+        let ripples = [];
+        let lastTime = 0;
+        let frameCount = 0;
+        let fps = 60;
+
+        // Column class to manage independent rain streams
+        class Column {
+            constructor(x) {
+                this.x = x;
+                this.y = Math.random() * -100;
+                this.speed = (Math.random() * 0.8 + 0.6);
+                this.chars = [];
+                this.length = Math.floor(Math.random() * 15 + 10);
+                this.updateChars();
+            }
+
+            updateChars() {
+                const charsStr = charSets[config.charSetKey];
+                this.chars = [];
+                for (let i = 0; i < this.length; i++) {
+                    this.chars.push(charsStr[Math.floor(Math.random() * charsStr.length)]);
+                }
+            }
+
+            draw() {
+                const palette = palettes[config.colorScheme];
+                const charsStr = charSets[config.charSetKey];
+
+                for (let i = 0; i < this.chars.length; i++) {
+                    const charY = this.y - (i * config.fontSize);
+                    if (charY < 0 || charY > canvas.height) continue;
+
+                    // Randomly mutate characters mid-fall for the flickering effect
+                    if (Math.random() < 0.02) {
+                        this.chars[i] = charsStr[Math.floor(Math.random() * charsStr.length)];
+                    }
+
+                    // Lead character is bright white/glowing
+                    if (i === 0) {
+                        ctx.fillStyle = palette.head;
+                        ctx.shadowColor = palette.main;
+                        ctx.shadowBlur = 8;
+                    } else {
+                        // Fade intensity further down the tail
+                        const alpha = 1 - (i / this.chars.length);
+                        ctx.fillStyle = palette.main;
+                        ctx.globalAlpha = alpha;
+                        ctx.shadowBlur = 0;
+                    }
+
+                    ctx.fillText(this.chars[i], this.x, charY);
+                    ctx.globalAlpha = 1.0;
+                    ctx.shadowBlur = 0;
+                }
+            }
+
+            step() {
+                this.y += (this.speed * config.fontSize * 0.5) * config.speedMultiplier;
+
+                // Reset column when it leaves screen bottom completely
+                if (this.y - (this.length * config.fontSize) > canvas.height) {
+                    this.y = Math.random() * -50;
+                    this.speed = (Math.random() * 0.8 + 0.6);
+                    this.updateChars();
+                }
+            }
+        }
+
+        // Ripple interactive effect on click
+        class Ripple {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.maxRadius = 250;
+                this.speed = 12;
+            }
+
+            draw() {
+                const palette = palettes[config.colorScheme];
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = palette.main;
+                ctx.lineWidth = 2;
+                ctx.shadowColor = palette.main;
+                ctx.shadowBlur = 10;
+                ctx.globalAlpha = Math.max(0, 1 - (this.radius / this.maxRadius));
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            update() {
+                this.radius += this.speed;
+            }
+        }
+
+        // Adjust canvas dimensions and columns layout
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            initColumns();
+        }
+
+        function initColumns() {
+            columns = [];
+            const colCount = Math.max(1, Math.floor((canvas.width / config.fontSize) * config.density));
+            const spacing = canvas.width / colCount;
+
+            for (let i = 0; i < colCount; i++) {
+                columns.push(new Column(i * spacing));
+            }
+
+            document.getElementById('fps-counter').innerText = `FPS: ${fps} | STREAMS: ${columns.length}`;
+        }
+
+        // Main Animation Loop
+        function animate(timestamp) {
+            requestAnimationFrame(animate);
+
+            if (config.paused) return;
+
+            // Calculate FPS
+            if (timestamp) {
+                if (!lastTime) lastTime = timestamp;
+                const delta = timestamp - lastTime;
+                frameCount++;
+                if (delta >= 1000) {
+                    fps = Math.round((frameCount * 1000) / delta);
+                    document.getElementById('fps-counter').innerText = `FPS: ${fps} | STREAMS: ${columns.length}`;
+                    frameCount = 0;
+                    lastTime = timestamp;
+                }
+            }
+
+            // Draw translucent black layer over previous frame to create fading trails
+            ctx.fillStyle = `rgba(5, 5, 5, ${config.fadeOpacity})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Configure text rendering
+            ctx.font = `${config.fontSize}px monospace`;
+            ctx.textBaseline = 'top';
+
+            // Draw and update digital rain columns
+            columns.forEach(col => {
+                col.draw();
+                col.step();
+            });
+
+            // Handle user click ripples
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                ripples[i].draw();
+                ripples[i].update();
+                if (ripples[i].radius > ripples[i].maxRadius) {
+                    ripples.splice(i, 1);
+                }
+            }
+        }
+
+        // Window Event Listeners
+        window.addEventListener('resize', resizeCanvas);
+
+        // Interactive Click Ripple Effect
+        window.addEventListener('click', (e) => {
+            // Don't trigger when clicking the UI
+            if (e.target.closest('#control-panel') || e.target.closest('button') || e.target.closest('a')) return;
+            ripples.push(new Ripple(e.clientX, e.clientY));
+        });
+
+        // UI Event Listeners & Binding Controls
+        document.querySelectorAll('.color-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                config.colorScheme = e.currentTarget.dataset.color;
+            });
+        });
+
+        document.getElementById('charset-select').addEventListener('change', (e) => {
+            config.charSetKey = e.target.value;
+            columns.forEach(col => col.updateChars());
+        });
+
+        document.getElementById('speed-range').addEventListener('input', (e) => {
+            config.speedMultiplier = parseFloat(e.target.value);
+            document.getElementById('speed-val').innerText = `${config.speedMultiplier.toFixed(1)}x`;
+        });
+
+        document.getElementById('fontsize-range').addEventListener('input', (e) => {
+            config.fontSize = parseInt(e.target.value, 10);
+            document.getElementById('fontsize-val').innerText = `${config.fontSize}px`;
+            initColumns();
+        });
+
+        document.getElementById('density-range').addEventListener('input', (e) => {
+            const val = parseInt(e.target.value, 10);
+            config.density = val / 100;
+            document.getElementById('density-val').innerText = `${val}%`;
+            initColumns();
+        });
+
+        function fadeLabel(v) {
+            if (v < 0.05) return 'Long';
+            if (v > 0.15) return 'Short';
+            return 'Medium';
+        }
+
+        document.getElementById('fade-range').addEventListener('input', (e) => {
+            config.fadeOpacity = parseFloat(e.target.value);
+            document.getElementById('fade-val').innerText = fadeLabel(config.fadeOpacity);
+        });
+
+        // Pause/Play Toggle
+        // Lucide replaces each <i> with an <svg>, so the icon is re-rendered
+        // inside a wrapper span instead of looking the <i> up again.
+        const pauseBtn = document.getElementById('pause-btn');
+        const pauseIcon = document.getElementById('pause-icon');
+        const pauseLabel = document.getElementById('pause-label');
+        const statusDot = document.getElementById('status-dot');
+
+        function setPaused(paused) {
+            config.paused = paused;
+            pauseIcon.innerHTML = `<i data-lucide="${paused ? 'play' : 'pause'}" class="w-4 h-4"></i>`;
+            pauseLabel.innerText = paused ? 'RESUME' : 'PAUSE';
+            statusDot.className = paused
+                ? 'w-3 h-3 rounded-full bg-amber-500'
+                : 'w-3 h-3 rounded-full bg-emerald-500 animate-pulse';
+            lucide.createIcons();
+        }
+
+        pauseBtn.addEventListener('click', () => setPaused(!config.paused));
+
+        // Spacebar toggles pause too
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && e.target.tagName !== 'SELECT' && e.target.tagName !== 'INPUT') {
+                e.preventDefault();
+                setPaused(!config.paused);
+            }
+        });
+
+        // Toggle Control Panel Visibility
+        const panel = document.getElementById('control-panel');
+        const toggleBtn = document.getElementById('toggle-panel-btn');
+        const closeBtn = document.getElementById('close-panel-btn');
+
+        function togglePanel() {
+            panel.classList.toggle('translate-x-0');
+            panel.classList.toggle('opacity-100');
+            panel.classList.toggle('translate-x-full');
+            panel.classList.toggle('opacity-0');
+            panel.classList.toggle('pointer-events-none');
+        }
+
+        toggleBtn.addEventListener('click', togglePanel);
+
+        // On phones the panel covers most of the screen, so start it closed
+        if (window.matchMedia('(max-width: 639px)').matches) togglePanel();
+        closeBtn.addEventListener('click', togglePanel);
+
+        // Fullscreen Toggle
+        document.getElementById('fullscreen-btn').addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen().catch(() => {});
+                }
+            } else if (document.exitFullscreen) {
+                document.exitFullscreen();
+            }
+        });
+
+        // Reset to Defaults
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            config.fontSize = 16;
+            config.speedMultiplier = 1.0;
+            config.density = 1.0;
+            config.fadeOpacity = 0.08;
+            config.charSetKey = 'matrix';
+            config.colorScheme = 'matrix';
+
+            document.getElementById('speed-range').value = 1.0;
+            document.getElementById('speed-val').innerText = '1.0x';
+            document.getElementById('fontsize-range').value = 16;
+            document.getElementById('fontsize-val').innerText = '16px';
+            document.getElementById('density-range').value = 100;
+            document.getElementById('density-val').innerText = '100%';
+            document.getElementById('fade-range').value = 0.08;
+            document.getElementById('fade-val').innerText = 'Medium';
+            document.getElementById('charset-select').value = 'matrix';
+
+            if (config.paused) setPaused(false);
+            initColumns();
+        });
+
+        // Start initialization on window load
+        window.onload = function() {
+            resizeCanvas();
+            requestAnimationFrame(animate);
+        };
+    </script>
+</body>
+</html>
